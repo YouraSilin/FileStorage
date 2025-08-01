@@ -111,14 +111,42 @@ class UserFile < ApplicationRecord
     nil
   end
 
-  # Get appropriate icon for the file type
+  def high_quality_preview
+    return unless file.attached?
+    
+    begin
+      if file.image?
+        file.variant(
+          resize_to_limit: [800, 800],
+          saver: {
+            quality: 90,
+            strip: true,
+            interlace: 'JPEG'
+          }
+        ).processed
+      elsif file.content_type == 'application/pdf'
+        file.preview(
+          resize_to_limit: [800, 800],
+          format: :jpg,
+          saver: {
+            quality: 90,
+            strip: true
+          }
+        ).processed
+      end
+    rescue ActiveStorage::FileNotFoundError, ActiveStorage::InvariableError => e
+      Rails.logger.error "Preview generation failed: #{e.message}"
+      nil
+    end
+  end
+
   def icon_for_file
-    if file.image?
-      'bi bi-image'
-    elsif file.content_type == 'application/pdf'
-      'bi bi-file-earmark-pdf'
-    else
-      'bi bi-file-earmark'
+    return 'bi bi-file-earmark' unless file.attached?
+
+    case file.content_type
+    when /image/ then 'bi bi-image'
+    when 'application/pdf' then 'bi bi-file-earmark-pdf'
+    else 'bi bi-file-earmark'
     end
   end
 end
