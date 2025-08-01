@@ -319,6 +319,7 @@ class UserFilesController < ApplicationController
 end
 ```
 Настройка форм
+
 app/views/user_files/_form.html.erb:
 ```erb
 <%= simple_form_for(@user_file) do |f| %>
