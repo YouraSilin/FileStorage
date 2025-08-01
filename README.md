@@ -53,22 +53,28 @@ Here is a possible configuration for config/environments/development.rb:
 ```erb
 config.action_mailer.default_url_options = { host: 'localhost', port: 3000 }
 ```
+Прописать mini-magic в /config/environments/development.rb
+```ruby
+  config.active_storage.variant_processor = :mini_magick
+```
 Модификация моделей
 
 app/models/user.rb:
-```ruby
-
 class User < ApplicationRecord
   has_many :collections, dependent: :destroy
   has_many :user_files, through: :collections
   
   devise :database_authenticatable, :registerable,
          :recoverable, :rememberable, :validatable
+
+  def accessible_files
+    UserFile.joins(:collection)
+            .where("collections.user_id = ? OR collections.is_public = ?", id, true)
+  end
 end
 ```
 app/models/collection.rb:
 ```ruby
-
 class Collection < ApplicationRecord
   belongs_to :user
   has_many :user_files, dependent: :destroy
@@ -79,20 +85,39 @@ end
 ```
 app/models/user_file.rb:
 ```ruby
-
 class UserFile < ApplicationRecord
   belongs_to :collection
   has_one_attached :file
-  
+
   validates :name, presence: true
-  
+
+  # Check if file is previewable (images or PDFs)
+  def previewable?
+    return false unless file.attached?
+    file.image? || file.content_type == 'application/pdf'
+  end
+
+  # Generate preview for the file
   def file_preview
+    return unless file.attached?
+
     if file.image?
-      file.variant(resize_to_limit: [100, 100])
-    elsif file.previewable?
-      file.preview(resize_to_limit: [100, 100])
+      file.variant(resize_to_limit: [200, 200]).processed
+    elsif file.content_type == 'application/pdf'
+      file.preview(resize_to_limit: [200, 200]).processed
+    end
+  rescue ActiveStorage::FileNotFoundError
+    nil
+  end
+
+  # Get appropriate icon for the file type
+  def icon_for_file
+    if file.image?
+      'bi bi-image'
+    elsif file.content_type == 'application/pdf'
+      'bi bi-file-earmark-pdf'
     else
-      nil
+      'bi bi-file-earmark'
     end
   end
 end
