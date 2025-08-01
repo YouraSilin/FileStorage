@@ -31,6 +31,8 @@ https://github.com/YouraSilin/FileStorage/blob/master/Dockerfile
 
 https://github.com/YouraSilin/FileStorage/blob/master/Gemfile
 
+```bash
+
 docker compose up
 
 docker compose exec web rails generate devise:install
