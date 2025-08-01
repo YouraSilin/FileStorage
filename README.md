@@ -243,7 +243,12 @@ class UserFilesController < ApplicationController
 
   # GET /user_files or /user_files.json
   def index
-    @user_files = current_user.user_files.includes(:collection)
+    @user_files = if params[:mine] == 'true'
+                    current_user.user_files
+                  else
+                    UserFile.visible_to(current_user)
+                  end
+                  .includes(:collection, file_attachment: :blob)
   end
 
   # GET /user_files/1 or /user_files/1.json
@@ -458,7 +463,7 @@ app/views/layouts/application.html.erb
   <body>
     <nav class="navbar navbar-expand-lg bg-light">
       <div class="container-fluid">
-      <%= link_to "Storage", collections_path, class: "navbar-brand" %>
+      <%= link_to "Storage", user_files_path, class: "navbar-brand" %>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
           <span class="navbar-toggler-icon"></span>
         </button>
@@ -467,10 +472,10 @@ app/views/layouts/application.html.erb
             <form class="d-flex">
             </form>
                 <li class="nav-item">
-                  <%= link_to "Коллекции", collections_path, class: "nav-link  ? 'active' : ''}" %>
+                  <%= link_to "Мои коллекции", collections_path, class: "nav-link  ? 'active' : ''}" %>
                 </li>
                 <li class="nav-item">
-                  <%= link_to "Мои файлы", user_files_path, class: "nav-link  ? 'active' : ''}" %>
+                  <%= link_to "Мои файлы", user_files_path(mine: true), class: "nav-link  ? 'active' : ''}" %>
                 </li>
           </ul>
           <ul class="navbar-nav ms-auto">
