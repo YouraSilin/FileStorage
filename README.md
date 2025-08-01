@@ -456,34 +456,37 @@ app/views/layouts/application.html.erb
   </head>
 
   <body>
-    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+    <nav class="navbar navbar-expand-lg bg-light">
       <div class="container-fluid">
-        <%= link_to "File Storage", root_path, class: "navbar-brand" %>
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+      <%= link_to "Storage", collections_path, class: "navbar-brand" %>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
           <span class="navbar-toggler-icon"></span>
         </button>
-        <div class="collapse navbar-collapse" id="navbarNav">
-          <ul class="navbar-nav me-auto">
-            <% if user_signed_in? %>
-              <li class="nav-item">
-                <%= link_to "My Collections", collections_path, class: "nav-link" %>
-              </li>
-              <li class="nav-item">
-                <%= link_to "My Files", user_files_path, class: "nav-link" %>
-              </li>
-            <% end %>
+        <div class="collapse navbar-collapse" id="navbarSupportedContent">
+          <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+            <form class="d-flex">
+            </form>
+                <li class="nav-item">
+                  <%= link_to "Коллекции", collections_path, class: "nav-link  ? 'active' : ''}" %>
+                </li>
+                <li class="nav-item">
+                  <%= link_to "Мои файлы", user_files_path, class: "nav-link  ? 'active' : ''}" %>
+                </li>
           </ul>
-          <ul class="navbar-nav">
+          <ul class="navbar-nav ms-auto">
             <% if user_signed_in? %>
               <li class="nav-item">
-                <%= link_to "Logout", destroy_user_session_path, method: :delete, class: "nav-link" %>
+                <span class="nav-link">Вы зашли как: <strong><%= current_user.email %></strong></span>
+              </li>
+              <li class="nav-item">
+                <%= button_to "Выйти", destroy_user_session_path, method: :delete, data: { turbo_frame: "_top" }, class: "nav-link" %>
               </li>
             <% else %>
               <li class="nav-item">
-                <%= link_to "Login", new_user_session_path, class: "nav-link" %>
+                <%= link_to "Войти", new_user_session_path, data: { turbo_frame: "_top" }, class: "nav-link" %>
               </li>
               <li class="nav-item">
-                <%= link_to "Sign Up", new_user_registration_path, class: "nav-link" %>
+                <%= link_to "Регистрация", new_user_registration_path, data: { turbo_frame: "_top" }, class: "nav-link" %>
               </li>
             <% end %>
           </ul>
