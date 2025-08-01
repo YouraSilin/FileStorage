@@ -60,6 +60,7 @@ config.action_mailer.default_url_options = { host: 'localhost', port: 3000 }
 Модификация моделей
 
 app/models/user.rb:
+```ruby
 class User < ApplicationRecord
   has_many :collections, dependent: :destroy
   has_many :user_files, through: :collections
