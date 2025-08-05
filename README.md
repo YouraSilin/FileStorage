@@ -304,3 +304,180 @@ class UserFilesController < ApplicationController
     end
 end
 ```
+Настройка форм
+
+app/views/user_files/_form.html.erb:
+```erb
+<%= simple_form_for(@user_file) do |f| %>
+  <%= f.error_notification %>
+  <%= f.error_notification message: f.object.errors[:base].to_sentence if f.object.errors[:base].present? %>
+
+  <div class="form-inputs mb-3">
+
+    <%= f.association :folder, folder: current_user.folders %>
+    
+    <div class="mb-3">
+      <%= f.label :file, class: 'form-label' %>
+      <%= f.file_field :file, class: 'form-control' %>
+    </div>
+
+    <% if @user_file.file.attached? %>
+      <div class="mt-3 border p-3 rounded">
+        <h5>Current file:</h5>
+        <% if @user_file.previewable? && @user_file.file_preview %>
+          <%= image_tag @user_file.file_preview, class: 'img-thumbnail mb-2' %>
+        <% end %>
+        <p>
+          <i class="<%= @user_file.icon_for_file %> me-2"></i>
+          <%= @user_file.file.filename %>
+        </p>
+      </div>
+    <% end %>
+  </div>
+
+  <div class="form-actions">
+    <%= f.button :submit, class: 'btn btn-primary' %>
+  </div>
+<% end %>
+```
+app/views/user_files/show.html.erb
+```erb
+<div class="card">
+  <div class="card-body">
+    <h5 class="card-title"><%= @user_file.name %></h5>
+    
+    <% if @user_file.file.attached? %>
+      <% preview = @user_file.high_quality_preview %>
+      
+      <% if preview %>
+        <div class="mb-3">
+          <%= image_tag preview, class: 'img-fluid rounded' %>
+        </div>
+      <% else %>
+        <div class="alert alert-info">
+          Preview not available for this file type
+        </div>
+      <% end %>
+
+      <div class="d-flex align-items-center mb-3">
+        <i class="<%= @user_file.icon_for_file %> me-2"></i>
+        <span><%= @user_file.file.filename %></span>
+      </div>
+    <% else %>
+      <div class="alert alert-warning">
+        No file attached
+      </div>
+    <% end %>
+
+    <%= link_to 'Download', rails_blob_path(@user_file.file, disposition: 'attachment'), 
+                class: 'btn btn-primary me-2' if @user_file.file.attached? %>
+    <%= link_to 'Edit', edit_user_file_path(@user_file), class: 'btn btn-secondary me-2' %>
+    <%= link_to 'Back', user_files_path, class: 'btn btn-outline-secondary' %>
+  </div>
+</div>
+```
+app/views/user_files/index.html.erb
+```erb
+<div class="row">
+  <% @user_files.each do |user_file| %>
+    <div class="col-md-4 mb-4">
+      <div class="card h-100">
+        <% if user_file.file.attached? %>
+          <% preview = user_file.high_quality_preview %>
+          <% if preview %>
+            <%= image_tag preview, class: 'card-img-top' %>
+          <% else %>
+            <div class="card-img-top bg-light d-flex align-items-center justify-content-center" style="height: 200px;">
+              <i class="<%= user_file.icon_for_file %>" style="font-size: 3rem;"></i>
+            </div>
+          <% end %>
+        <% end %>
+        
+        <div class="card-body">
+          <h5 class="card-title">
+            <%= user_file.file.filename %>
+          </h5>
+          <div class="card-footer bg-white">
+            <%= link_to 'Show', user_file, class: 'btn btn-sm btn-outline-primary' %>
+            <%= link_to 'Edit', edit_user_file_path(user_file), class: 'btn btn-sm btn-outline-secondary' %>
+            <%= link_to 'Delete', user_file, 
+                        method: :delete, data: { turbo_method: 'delete', turbo_confirm: "вы уверены?" }, 
+                        class: 'btn btn-sm btn-outline-danger' %>
+          </div>
+        </div>
+      </div>
+    </div>
+  <% end %>
+</div>
+
+<%= link_to 'New User File', new_user_file_path, class: 'btn btn-success mt-3' %>
+```
+app/views/layouts/application.html.erb
+```erb
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Storage</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <%= csrf_meta_tags %>
+    <%= csp_meta_tag %>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.0/font/bootstrap-icons.css" rel="stylesheet">
+    <%= stylesheet_link_tag "application", "data-turbo-track": "reload" %>
+    <%= javascript_importmap_tags %>
+  </head>
+
+  <body>
+    <nav class="navbar navbar-expand-lg bg-light">
+      <div class="container-fluid">
+      <%= link_to "Storage", user_files_path, class: "navbar-brand" %>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarSupportedContent">
+          <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+            <form class="d-flex">
+            </form>
+                <li class="nav-item">
+                  <%= link_to "Мои коллекции", collections_path, class: "nav-link  ? 'active' : ''}" %>
+                </li>
+                <li class="nav-item">
+                  <%= link_to "Мои файлы", user_files_path(mine: true), class: "nav-link  ? 'active' : ''}" %>
+                </li>
+          </ul>
+          <ul class="navbar-nav ms-auto">
+            <% if user_signed_in? %>
+              <li class="nav-item">
+                <span class="nav-link">Вы зашли как: <strong><%= current_user.email %></strong></span>
+              </li>
+              <li class="nav-item">
+                <%= button_to "Выйти", destroy_user_session_path, method: :delete, data: { turbo_frame: "_top" }, class: "nav-link" %>
+              </li>
+            <% else %>
+              <li class="nav-item">
+                <%= link_to "Войти", new_user_session_path, data: { turbo_frame: "_top" }, class: "nav-link" %>
+              </li>
+              <li class="nav-item">
+                <%= link_to "Регистрация", new_user_registration_path, data: { turbo_frame: "_top" }, class: "nav-link" %>
+              </li>
+            <% end %>
+          </ul>
+        </div>
+      </div>
+    </nav>
+    <div class="container mt-4">
+      <%= yield %>
+    </div>
+  </body>
+</html>
+```
+Настройка маршрутов
+config/routes.rb
+```ruby
+Rails.application.routes.draw do
+  devise_for :users
+  resources :folders
+  resources :user_files
+  
+  root to: "user_files#index"
+end
+```
