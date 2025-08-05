@@ -227,3 +227,80 @@ class FoldersController < ApplicationController
     end
 end
 ```
+Контроллер пользовательских файлов
+```ruby
+class UserFilesController < ApplicationController
+  before_action :authenticate_user!
+  before_action :set_user_file, only: %i[ show edit update destroy ]
+  before_action :authorize_user, only: %i[ edit update destroy ]
+
+  def index
+    @user_files = if params[:mine] == 'true'
+      current_user.user_files
+    else
+      UserFile.joins(:folder)
+        .where(folders: { is_public: true })
+      end
+    .includes(:folder, file_attachment: :blob)
+  end
+
+  def show
+  end
+
+  def new
+    @user_file = UserFile.new
+    @folders = current_user.folders
+  end
+
+  def edit
+    @folders = current_user.folders
+  end
+
+  def create
+    @user_file = current_user.user_files.build(user_file_params)
+    @folders = current_user.folders
+
+    respond_to do |format|
+      if @user_file.save
+        format.html { redirect_to user_file_url(@user_file), notice: "файл сохранен" }
+      else
+        format.html { render :new, status: :unprocessable_entity }
+      end
+    end
+  end
+
+  def update
+    respond_to do |format|
+      if @user_file.update(user_file_params)
+        format.html { redirect_to user_file_url(@user_file), notice: "файл сохранен" }
+      else
+        format.html { render :edit, status: :unprocessable_entity }
+      end
+    end
+  end
+
+  def destroy
+    @user_file.destroy!
+    respond_to do |format|
+      format.html { redirect_to user_files_url, notice: "файл удален" }
+    end
+  end
+
+  private
+    # Use callbacks to share common setup or constraints between actions.
+    def set_user_file
+      @user_file = UserFile.find(params[:id])
+    end
+
+    # Only allow a list of trusted parameters through.
+    def user_file_params
+      params.require(:user_file).permit(:folder_id, :file)
+    end
+
+    def authorize_user
+      unless @user_file.folder.user == current_user
+        redirect_to user_files_path, alert: "You are not authorized to perform this action."
+      end
+    end
+end
+```
