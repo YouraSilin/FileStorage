@@ -1,0 +1,18 @@
+services:
+  db:
+    image: postgres:15
+    volumes:
+      - ./tmp/db:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5434:5432"
+  web:
+    build: .
+    command: ["bin/dev"]
+    volumes:
+      - .:/storage
+    ports:
+      - "3001:3000"
+    depends_on:
+      - db
