@@ -470,6 +470,25 @@ app/views/layouts/application.html.erb
   </body>
 </html>
 ```
+Добавить слили в application.bootstrap.scss
+```css
+/* Стили для папок */
+.folder-card {
+  transition: transform 0.2s;
+}
+
+.folder-card:hover {
+  transform: scale(1.1);
+}
+
+.folder-icon {
+  color: #ffc107; /* Желтый цвет для иконок папок */
+}
+
+.bi-folder-plus {
+  color: #28a745; /* Зеленый для публичных папок */
+}
+```
 Настройка маршрутов
 config/routes.rb
 ```ruby
