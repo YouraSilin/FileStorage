@@ -438,7 +438,7 @@ app/views/layouts/application.html.erb
             <form class="d-flex">
             </form>
                 <li class="nav-item">
-                  <%= link_to "Мои коллекции", collections_path, class: "nav-link  ? 'active' : ''}" %>
+                  <%= link_to "Мои каталоги", folders_path, class: "nav-link  ? 'active' : ''}" %>
                 </li>
                 <li class="nav-item">
                   <%= link_to "Мои файлы", user_files_path(mine: true), class: "nav-link  ? 'active' : ''}" %>
