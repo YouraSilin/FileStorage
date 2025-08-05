@@ -484,7 +484,7 @@ app/views/folders/index.html.erb
   </div>
 </div>
 ```
-/home/boss/storage/app/views/folders/show.html.erb
+app/views/folders/show.html.erb
 ```erb
 <div class="container mt-4">
   <% if notice.present? %>
