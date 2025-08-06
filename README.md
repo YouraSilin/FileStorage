@@ -90,7 +90,6 @@ end
 ```
 app/models/user_file.rb:
 ```ruby
-
 class UserFile < ApplicationRecord
   belongs_to :folder
   has_one_attached :file
@@ -120,7 +119,6 @@ class UserFile < ApplicationRecord
         Rails.logger.error "Preview error: #{e.message}"
         nil
   end
-  
 
   def high_quality_preview
     return unless file.attached?
@@ -163,15 +161,22 @@ end
 Контроллер каталогов
 ```ruby
 class FoldersController < ApplicationController
+  before_action :authenticate_user!
   before_action :set_folder, only: %i[ show edit update destroy ]
+  before_action :authorize_owner, only: %i[ edit update destroy ]
 
   # GET /folders or /folders.json
   def index
-    @folders = Folder.all
+    @folders = if params[:mine] == 'true'
+                 current_user.folders
+               else
+                 Folder.public_folders
+               end
   end
 
   # GET /folders/1 or /folders/1.json
   def show
+    @folder = Folder.find(params[:id])
   end
 
   # GET /folders/new
@@ -230,6 +235,12 @@ class FoldersController < ApplicationController
     # Only allow a list of trusted parameters through.
     def folder_params
       params.require(:folder).permit(:name, :user_id, :is_public)
+    end
+
+    def authorize_owner
+      unless @folder.user == current_user
+        redirect_to folders_path, alert: "You are not authorized to perform this action."
+      end
     end
 end
 ```
@@ -304,10 +315,12 @@ class UserFilesController < ApplicationController
     end
 
     def authorize_user
-      unless @user_file.folder.user == current_user
-        redirect_to user_files_path, alert: "You are not authorized to perform this action."
-      end
+    if @user_file.folder.nil? || @user_file.folder.user != current_user
+      redirect_to user_files_path, 
+                 alert: "You are not authorized to perform this action.",
+                 status: :forbidden
     end
+  end
 end
 ```
 Настройка форм
@@ -321,7 +334,8 @@ app/views/user_files/_form.html.erb:
     <% if @user_file.folder_id.present? %>
       <%= f.input :folder_id, as: :hidden %>
       <div class="alert alert-info mb-3">
-        File will be added to: <strong><%= @user_file.folder.name %></strong>
+        File will be added to:
+        <strong><%= link_to user_file.folder.name, user_file.folder, class: 'link-dark' %></strong>
       </div>
     <% else %>
       <%= f.association :folder, folder: @folders %>
@@ -340,7 +354,12 @@ app/views/user_files/show.html.erb
 ```erb
 <div class="card">
   <div class="card-body">
-    <h5 class="card-title"><%= @user_file.name %></h5>
+    <h5 class="card-title">
+      <div class="d-flex align-items-center mb-3">
+        <i class="<%= @user_file.icon_for_file %> fs-3 me-2"></i>
+        <span><%= @user_file.file.filename %></span>
+      </div>
+    </h5>
     
     <% if @user_file.file.attached? %>
       <% preview = @user_file.high_quality_preview %>
@@ -355,20 +374,35 @@ app/views/user_files/show.html.erb
         </div>
       <% end %>
 
-      <div class="d-flex align-items-center mb-3">
-        <i class="<%= @user_file.icon_for_file %> me-2"></i>
-        <span><%= @user_file.file.filename %></span>
-      </div>
+      
     <% else %>
       <div class="alert alert-warning">
         No file attached
       </div>
     <% end %>
+         
+      <div class="d-flex align-items-center mb-3">
 
-    <%= link_to 'Download', rails_blob_path(@user_file.file, disposition: 'attachment'), 
-                class: 'btn btn-primary me-2' if @user_file.file.attached? %>
-    <%= link_to 'Edit', edit_user_file_path(@user_file), class: 'btn btn-secondary me-2' %>
-    <%= link_to 'Back', user_files_path, class: 'btn btn-outline-secondary' %>
+      <i class="bi bi-folder<%= @user_file.folder.is_public ? '' : '-x' %> fs-3 me-3"></i>
+          <div>
+            <h5><%= link_to @user_file.folder.name, @user_file.folder, class: 'link-dark' %></h5>
+            <span class="badge bg-<%= @user_file.folder.is_public ? 'success' : 'secondary' %>">
+              <%= @user_file.folder.is_public ? 'Public' : 'Private' %>
+            </span>
+          </div>
+      </div>
+      <div class="text-muted small mt-2">
+        Owner: <%= @user_file.folder.user.email %>
+      </div>
+    
+    <div class="card-footer bg-white">        
+      <%= link_to 'Download', rails_blob_path(@user_file.file, disposition: 'attachment'), 
+          class: 'btn btn-primary me-2' if @user_file.file.attached? %>
+      <%= link_to 'Edit', edit_user_file_path(@user_file), class: 'btn btn-sm btn-outline-secondary' %>
+      <%= link_to 'Delete', @user_file, 
+                  method: :delete, data: { turbo_method: 'delete', turbo_confirm: "вы уверены?" }, 
+                  class: 'btn btn-sm btn-outline-danger' %>
+    </div>
   </div>
 </div>
 ```
@@ -395,7 +429,7 @@ app/views/user_files/index.html.erb
             <%= image_tag preview, class: 'card-img-top' %>
           <% else %>
             <div class="card-img-top bg-light d-flex align-items-center justify-content-center" style="height: 200px;">
-              <i class="<%= user_file.icon_for_file %>" style="font-size: 3rem;"></i>
+              <i class="<%= user_file.icon_for_file%> fs-1"></i>
             </div>
           <% end %>
         <% end %>
@@ -404,6 +438,17 @@ app/views/user_files/index.html.erb
           <h5 class="card-title">
             <%= user_file.file.filename %>
           </h5>
+          <div class="d-flex align-items-center mb-3">
+
+          <i class="bi bi-folder<%= user_file.folder.is_public ? '' : '-x' %> fs-3 me-3"></i>
+              <div>
+                <h5><%= link_to user_file.folder.name, user_file.folder, class: 'link-dark' %></h5>
+                <span class="badge bg-<%= user_file.folder.is_public ? 'success' : 'secondary' %>">
+                  <%= user_file.folder.is_public ? 'Public' : 'Private' %>
+                </span>
+              </div>
+        
+          </div>
           <div class="card-footer bg-white">
             <%= link_to 'Show', user_file, class: 'btn btn-sm btn-outline-primary' %>
             <%= link_to 'Edit', edit_user_file_path(user_file), class: 'btn btn-sm btn-outline-secondary' %>
@@ -421,22 +466,26 @@ app/views/folders/_folder.html.erb
 ```erb
 <div class="col-md-3 mb-4 folder-card" id="<%= dom_id folder %>">
   <div class="card h-100">
-    <div class="card-body text-center">
-      <div class="folder-icon mb-3">
-        <i class="bi bi-folder<%= folder.is_public ? '-plus' : '' %> fs-1"></i>
+    <%= link_to folder, class: 'link-dark text-decoration-none stretched-link', style: 'z-index: 1;' do %>
+      <div class="card-body text-center">
+        <div class="folder-icon mb-3">
+          <i class="bi bi-folder<%= folder.is_public ? '' : '-x' %> fs-1"></i>
+        </div>
+        <h5 class="card-title text-dark"><%= folder.name %></h5>
+        <div class="badge bg-<%= folder.is_public ? 'success' : 'secondary' %>">
+          <%= folder.is_public ? 'Public' : 'Private' %>
+        </div>
       </div>
-      <h5 class="card-title"><%= folder.name %></h5>
-      <div class="badge bg-<%= folder.is_public ? 'success' : 'secondary' %>">
-        <%= folder.is_public ? 'Public' : 'Private' %>
+    <% end %>
+    <% if folder.user == current_user %>
+      <div class="card-footer bg-white position-relative" style="z-index: 2;">
+        <%= link_to 'Edit', edit_folder_path(folder), class: 'btn btn-sm btn-outline-secondary' %>
+        <%= link_to 'Delete', folder, 
+                    method: :delete, 
+                    data: { turbo_method: 'delete', turbo_confirm: "вы уверены?" }, 
+                    class: 'btn btn-sm btn-outline-danger' %>
       </div>
-    </div>
-    <div class="card-footer bg-white">
-      <%= link_to 'Show', folder, class: 'btn btn-sm btn-outline-primary' %>
-            <%= link_to 'Edit', edit_folder_path(folder), class: 'btn btn-sm btn-outline-secondary' %>
-            <%= link_to 'Delete', folder, 
-                        method: :delete, data: { turbo_method: 'delete', turbo_confirm: "вы уверены?" }, 
-                        class: 'btn btn-sm btn-outline-danger' %>
-    </div>
+    <% end %>
   </div>
 </div>
 ```
@@ -459,8 +508,8 @@ app/views/folders/_form.html.erb
   </div>
 
   <div class="form-actions">
-    <%= f.button :submit, class: 'btn btn-primary' %>
-    <%= link_to "Cancel", folders_path, class: 'btn btn-outline-secondary ms-2' %>
+    <%= f.button :submit, class: 'btn btn-sm btn-primary' %>
+    <%= link_to "Cancel", folders_path, class: 'btn btn-sm btn-outline-secondary ms-2' %>
   </div>
 <% end %>
 ```
@@ -497,7 +546,7 @@ app/views/folders/show.html.erb
   <div class="card mb-4">
     <div class="card-body">
       <div class="d-flex align-items-center mb-3">
-        <i class="bi bi-folder<%= @folder.is_public ? '-plus' : '' %> fs-1 me-3"></i>
+        <i class="bi bi-folder<%= @folder.is_public ? '' : '-x' %> fs-1 me-3"></i>
         <div>
           <h2 class="card-title mb-0"><%= @folder.name %></h2>
           <span class="badge bg-<%= @folder.is_public ? 'success' : 'secondary' %>">
@@ -505,13 +554,17 @@ app/views/folders/show.html.erb
           </span>
         </div>
       </div>
-
+      <div class="text-muted small mt-2">
+        Owner: <%= @folder.user.email %>
+      </div>
       <div class="mt-4">
-        <%= link_to 'Add File', new_user_file_path(folder_id: @folder.id), class: 'btn btn-sm btn-success' %>
-        <%= link_to 'Edit', edit_folder_path(@folder), class: 'btn btn-sm btn-outline-secondary' %>
-        <%= link_to 'Delete', @folder, 
-                            method: :delete, data: { turbo_method: 'delete', turbo_confirm: "вы уверены?" }, 
-                            class: 'btn btn-sm btn-outline-danger' %>
+        <% if @folder.user == current_user %>
+          <%= link_to 'Add File', new_user_file_path(folder_id: @folder.id), class: 'btn btn-sm btn-success' %>
+          <%= link_to 'Edit', edit_folder_path(@folder), class: 'btn btn-sm btn-outline-secondary' %>
+          <%= link_to 'Delete', @folder, 
+                              method: :delete, data: { turbo_method: 'delete', turbo_confirm: "вы уверены?" }, 
+                              class: 'btn btn-sm btn-outline-danger' %>
+        <% end %>
         <%= link_to 'Back', folders_path, class: 'btn btn-sm btn-outline-primary' %>
       </div>
     </div>
@@ -542,13 +595,15 @@ app/views/folders/show.html.erb
           <h5 class="card-title">
             <%= user_file.file.filename %>
           </h5>
-          <div class="card-footer bg-white">
-            <%= link_to 'Show', user_file, class: 'btn btn-sm btn-outline-primary' %>
-            <%= link_to 'Edit', edit_user_file_path(user_file), class: 'btn btn-sm btn-outline-secondary' %>
-            <%= link_to 'Delete', user_file, 
-                        method: :delete, data: { turbo_method: 'delete', turbo_confirm: "вы уверены?" }, 
-                        class: 'btn btn-sm btn-outline-danger' %>
-          </div>
+          <% if @folder.user == current_user %>
+            <div class="card-footer bg-white">
+              <%= link_to 'Show', user_file, class: 'btn btn-sm btn-outline-primary' %>
+              <%= link_to 'Edit', edit_user_file_path(user_file), class: 'btn btn-sm btn-outline-secondary' %>
+              <%= link_to 'Delete', user_file, 
+                          method: :delete, data: { turbo_method: 'delete', turbo_confirm: "вы уверены?" }, 
+                          class: 'btn btn-sm btn-outline-danger' %>
+            </div>
+          <% end %>
         </div>
       </div>
     </div>
@@ -588,7 +643,13 @@ app/views/layouts/application.html.erb
             <form class="d-flex">
             </form>
                 <li class="nav-item">
-                  <%= link_to "Мои каталоги", folders_path, class: "nav-link  ? 'active' : ''}" %>
+                  <%= link_to "Все папки", folders_path, class: "nav-link  ? 'active' : ''}" %>
+                </li>
+                <li class="nav-item">
+                  <%= link_to "Мои папки", folders_path(mine: true), class: "nav-link  ? 'active' : ''}" %>
+                </li>
+                <li class="nav-item">
+                  <%= link_to "Все файлы", user_files_path, class: "nav-link  ? 'active' : ''}" %>
                 </li>
                 <li class="nav-item">
                   <%= link_to "Мои файлы", user_files_path(mine: true), class: "nav-link  ? 'active' : ''}" %>
@@ -626,17 +687,8 @@ app/views/layouts/application.html.erb
 .folder-card {
   transition: transform 0.2s;
 }
-
 .folder-card:hover {
   transform: scale(1.1);
-}
-
-.folder-icon {
-  color: #ffc107; /* Желтый цвет для иконок папок */
-}
-
-.bi-folder-plus {
-  color: #28a745; /* Зеленый для публичных папок */
 }
 ```
 Настройка маршрутов
