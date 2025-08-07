@@ -442,7 +442,7 @@ app/views/user_files/index.html.erb
 
           <i class="bi bi-folder<%= user_file.folder.is_public ? '' : '-x' %> fs-3 me-3"></i>
               <div>
-                <h5><%= link_to user_file.folder.name, user_file.folder, class: 'link-dark' %></h5>
+                <h5><%= link_to user_file.folder.name, user_file.folder, class: 'link-dark text-decoration-none' %></h5>
                 <span class="badge bg-<%= user_file.folder.is_public ? 'success' : 'secondary' %>">
                   <%= user_file.folder.is_public ? 'Public' : 'Private' %>
                 </span>
