@@ -702,3 +702,180 @@ Rails.application.routes.draw do
   root to: "user_files#index"
 end
 ```
+Добавление множественной загрузки файлов
+
+Создадим Stimulus контроллер:
+```bash
+docker compose exec web rails generate stimulus file_upload
+```
+Редактируем созданный контроллер app/javascript/controllers/file_upload_controller.js:
+```js
+import { Controller } from "@hotwired/stimulus"
+
+export default class extends Controller {
+  static targets = ["fileInput", "submit", "folderSelect"]
+  
+  connect() {
+    console.log("File Upload Controller connected")
+  }
+
+  async submitForm(event) {
+    event.preventDefault()
+    this.submitTarget.disabled = true
+    const files = Array.from(this.fileInputTarget.files)
+    const folderId = this.folderSelectTarget.value
+    
+    const originalButtonText = this.submitTarget.innerHTML
+    this.submitTarget.innerHTML = `
+      <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+      Uploading ${files.length} files...
+    `
+    
+    try {
+      for (const file of files) {
+        await this.uploadSingleFile(file, folderId)
+      }
+      Turbo.visit(window.location.href, { action: 'replace' })
+    } catch (error) {
+      console.error('Upload error:', error)
+      alert(`Error uploading files: ${error.message}`)
+      this.submitTarget.innerHTML = originalButtonText
+      this.submitTarget.disabled = false
+    }
+  }
+
+  async uploadSingleFile(file, folderId) {
+    const formData = new FormData()
+    formData.append('user_file[file]', file)
+    formData.append('user_file[folder_id]', folderId)
+    
+    const response = await fetch(this.element.action, {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'X-CSRF-Token': document.querySelector("[name='csrf-token']").content,
+        'Accept': 'application/json'
+      }
+    })
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Upload failed' }))
+      throw new Error(error.error || 'Upload failed')
+    }
+  }
+}
+```
+В файле app/javascript/controllers/index.js должно быть:
+```js
+// Import and register all your controllers from the importmap via controllers/**/*_controller
+import { application } from "controllers/application"
+import { eagerLoadControllersFrom } from "@hotwired/stimulus-loading"
+eagerLoadControllersFrom("controllers", application)
+
+import FileUploadController from "./file_upload_controller"
+application.register("file-upload", FileUploadController)
+```
+Убедимся, что в config/importmap.rb есть:
+```ruby
+# Pin npm packages by running ./bin/importmap
+
+pin "application"
+pin "@hotwired/turbo-rails", to: "turbo.min.js"
+pin "@hotwired/stimulus", to: "stimulus.min.js"
+pin "@hotwired/stimulus-loading", to: "stimulus-loading.js"
+pin_all_from "app/javascript/controllers", under: "controllers"
+pin "bootstrap", to: "bootstrap.bundle.min.js"
+
+pin_all_from "app/javascript/controllers", under: "controllers"
+```
+Обновляем форму app/views/user_files/_form.html.erb:
+```erb
+<%= simple_form_for(@user_file, 
+    html: { 
+      data: { 
+        controller: "file-upload",
+        action: "submit->file-upload#submitForm"
+      }
+    }) do |f| %>
+  
+  <%= f.error_notification %>
+
+  <div class="form-inputs">
+    <% if @user_file.folder_id.present? %>
+      <%= f.hidden_field :folder_id, data: { file_upload_target: "folderSelect" } %>
+      <div class="alert alert-info mb-3">
+        Files will be added to: <strong><%= @user_file.folder.name %></strong>
+      </div>
+    <% else %>
+      <%= f.association :folder, 
+          collection: current_user.folders,
+          input_html: { 
+            data: { file_upload_target: "folderSelect" },
+            class: 'form-select'
+          } %>
+    <% end %>
+
+    <div class="mb-3">
+      <%= f.label :file, "Select files", class: "form-label" %>
+      <%= f.file_field :file, 
+          multiple: true,
+          direct_upload: false,
+          class: 'form-control',
+          data: { file_upload_target: "fileInput" } %>
+      <div class="form-text">Hold Ctrl/Cmd to select multiple files</div>
+    </div>
+  </div>
+
+  <div class="form-actions mt-3">
+    <%= f.button :button, 
+                type: 'submit',
+                class: 'btn btn-primary',
+                data: { file_upload_target: "submit" },
+                disabled: false do %>
+      Upload Files
+    <% end %>
+    <%= link_to 'Cancel', @user_file.folder || folders_path, class: 'btn btn-outline-secondary' %>
+  </div>
+<% end %>
+```
+Добавим стили для загрузки в app/assets/stylesheets/application.bootstrap.scss
+```css
+/* Анимация загрузки */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.upload-spinner {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid rgba(0,0,0,0.1);
+  border-radius: 50%;
+  border-top-color: #0d6efd;
+  animation: spin 1s ease-in-out infinite;
+  margin-right: 0.5rem;
+}
+
+/* Upload button loading state */
+.btn .spinner-border {
+  vertical-align: text-top;
+}
+```
+Обновим контроллер UserFilesController:
+```erb
+def create
+    @user_file = current_user.user_files.build(user_file_params)
+    @folders = current_user.folders
+
+    respond_to do |format|
+      if @user_file.save
+        format.html { redirect_to user_files_path, notice: "File was successfully uploaded." }
+        format.json { render :show, status: :created, location: @user_file }
+      else
+        format.html { render :new, status: :unprocessable_entity }
+        format.json { render json: @user_file.errors, status: :unprocessable_entity }
+      end
+    end
+  end
+```
