@@ -543,64 +543,69 @@ app/views/folders/show.html.erb
           </span>
         </div>
       </div>
-      <div class="text-muted small mt-2">
-        Owner: <%= @folder.user.email %>
-      </div>
-      <div class="mt-4">
+      
+      <div class="d-flex flex-wrap gap-2 mt-3">
         <% if @folder.user == current_user %>
           <%= link_to 'Add File', new_user_file_path(folder_id: @folder.id), class: 'btn btn-sm btn-success' %>
           <%= link_to 'Edit', edit_folder_path(@folder), class: 'btn btn-sm btn-outline-secondary' %>
           <%= link_to 'Delete', @folder, 
-                              method: :delete, data: { turbo_method: 'delete', turbo_confirm: "вы уверены?" }, 
-                              class: 'btn btn-sm btn-outline-danger' %>
+                      method: :delete, 
+                      data: { turbo_method: 'delete', turbo_confirm: "Are you sure?" }, 
+                      class: 'btn btn-sm btn-outline-danger' %>
         <% end %>
         <%= link_to 'Back', folders_path, class: 'btn btn-sm btn-outline-primary' %>
       </div>
     </div>
   </div>
 
-  <h3 class="mt-5 mb-3">
-    <i class="bi bi-files"></i> 
+  <h3 class="mb-4">
+    <i class="bi bi-files me-2"></i>
     Files in this folder
   </h3>
   
   <% if @folder.user_files.any? %>
-    <div class="row">
+    <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-4">
       <% @folder.user_files.each do |user_file| %>
-    <div class="col mb-4">
-      <div class="card h-100">
-        <% if user_file.file.attached? %>
-          <% preview = user_file.high_quality_preview %>
-          <% if preview %>
-            <%= image_tag preview, class: 'card-img-top' %>
-          <% else %>
-            <div class="card-img-top bg-light d-flex align-items-center justify-content-center" style="height: 200px;">
-              <i class="<%= user_file.icon_for_file %>" style="font-size: 3rem;"></i>
+        <div class="col">
+          <div class="card h-100">
+            <% if user_file.file.attached? %>
+              <% preview = user_file.high_quality_preview %>
+              <% if preview %>
+                <div class="card-img-top-container">
+                  <%= image_tag preview, class: 'card-img-top' %>
+                </div>
+              <% else %>
+                <div class="card-img-top bg-light d-flex align-items-center justify-content-center" style="height: 150px;">
+                  <i class="<%= user_file.icon_for_file %> fs-1"></i>
+                </div>
+              <% end %>
+            <% end %>
+            
+            <div class="card-body d-flex flex-column">
+              <h5 class="card-title text-truncate" title="<%= user_file.file.filename %>">
+                <%= user_file.file.filename %>
+              </h5>
+              
+              <div class="mt-auto">
+                <div class="d-flex justify-content-between">
+                  <%= link_to 'Show', user_file, class: 'btn btn-sm btn-outline-primary' %>
+                  <% if @folder.user == current_user %>
+                    <%= link_to 'Edit', edit_user_file_path(user_file), class: 'btn btn-sm btn-outline-secondary' %>
+                    <%= link_to 'Delete', user_file, 
+                                method: :delete, 
+                                data: { turbo_method: 'delete', turbo_confirm: "Are you sure?" }, 
+                                class: 'btn btn-sm btn-outline-danger' %>
+                  <% end %>
+                </div>
+              </div>
             </div>
-          <% end %>
-        <% end %>
-        
-        <div class="card-body">
-          <h5 class="card-title">
-            <%= user_file.file.filename %>
-          </h5>
-          <% if @folder.user == current_user %>
-            <div class="card-footer bg-white">
-              <%= link_to 'Show', user_file, class: 'btn btn-sm btn-outline-primary' %>
-              <%= link_to 'Edit', edit_user_file_path(user_file), class: 'btn btn-sm btn-outline-secondary' %>
-              <%= link_to 'Delete', user_file, 
-                          method: :delete, data: { turbo_method: 'delete', turbo_confirm: "вы уверены?" }, 
-                          class: 'btn btn-sm btn-outline-danger' %>
-            </div>
-          <% end %>
+          </div>
         </div>
-      </div>
-    </div>
-  <% end %>
+      <% end %>
     </div>
   <% else %>
     <div class="alert alert-info">
-      <i class="bi bi-info-circle"></i> 
+      <i class="bi bi-info-circle me-2"></i>
       This folder is empty. Add your first file.
     </div>
   <% end %>
