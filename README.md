@@ -398,10 +398,13 @@ app/views/user_files/show.html.erb
     <div class="card-footer bg-white">        
       <%= link_to 'Download', rails_blob_path(@user_file.file, disposition: 'attachment'), 
           class: 'btn btn-primary me-2' if @user_file.file.attached? %>
-      <%= link_to 'Edit', edit_user_file_path(@user_file), class: 'btn btn-sm btn-outline-secondary' %>
-      <%= link_to 'Delete', @user_file, 
-                  method: :delete, data: { turbo_method: 'delete', turbo_confirm: "вы уверены?" }, 
-                  class: 'btn btn-sm btn-outline-danger' %>
+      <% if @user_file.folder.user == current_user %>
+        <%= link_to 'Edit', edit_user_file_path(@user_file), class: 'btn btn-outline-secondary' %>
+        <%= link_to 'Delete', @user_file, 
+                    method: :delete, data: { turbo_method: 'delete', turbo_confirm: "вы уверены?" }, 
+                    class: 'btn btn-outline-danger' %>
+      <% end %>
+      <%= link_to 'Back', user_files_path, class: 'btn btn-outline-primary' %>
     </div>
   </div>
 </div>
@@ -434,16 +437,18 @@ app/views/user_files/index.html.erb
             <i class="bi bi-folder<%= user_file.folder.is_public ? '' : '-x' %> me-2"></i>
             <small class="text-muted"><%= user_file.folder.name %></small>
           </div>
-          
+
           <div class="mt-auto">
             <div class="d-flex justify-content-between">
-              <%= link_to 'Show', user_file, class: 'btn btn-sm btn-outline-primary' %>
-              <%= link_to 'Edit', edit_user_file_path(user_file), class: 'btn btn-sm btn-outline-secondary' %>
-              <%= link_to 'Delete', user_file, 
-                          method: :delete, 
-                          data: { turbo_method: 'delete', turbo_confirm: "Are you sure?" }, 
-                          class: 'btn btn-sm btn-outline-danger' %>
-            </div>
+              <%= link_to 'Show', user_file, class: 'btn btn-outline-primary' %>
+              <% if user_file.folder.user == current_user %>
+                <%= link_to 'Edit', edit_user_file_path(user_file), class: 'btn btn-outline-secondary' %>
+                <%= link_to 'Delete', user_file, 
+                            method: :delete, 
+                            data: { turbo_method: 'delete', turbo_confirm: "Are you sure?" }, 
+                            class: 'btn btn-outline-danger' %>
+              <% end %>
+            </div>            
           </div>
         </div>
       </div>
@@ -468,11 +473,11 @@ app/views/folders/_folder.html.erb
     <% end %>
     <% if folder.user == current_user %>
       <div class="card-footer bg-white position-relative" style="z-index: 2;">
-        <%= link_to 'Edit', edit_folder_path(folder), class: 'btn btn-sm btn-outline-secondary' %>
+        <%= link_to 'Edit', edit_folder_path(folder), class: 'btn btn-outline-secondary' %>
         <%= link_to 'Delete', folder, 
                     method: :delete, 
                     data: { turbo_method: 'delete', turbo_confirm: "вы уверены?" }, 
-                    class: 'btn btn-sm btn-outline-danger' %>
+                    class: 'btn btn-outline-danger' %>
       </div>
     <% end %>
   </div>
@@ -497,8 +502,8 @@ app/views/folders/_form.html.erb
   </div>
 
   <div class="form-actions">
-    <%= f.button :submit, class: 'btn btn-sm btn-primary' %>
-    <%= link_to "Cancel", folders_path, class: 'btn btn-sm btn-outline-secondary ms-2' %>
+    <%= f.button :submit, class: 'btn btn-primary' %>
+    <%= link_to "Cancel", folders_path, class: 'btn btn-outline-secondary ms-2' %>
   </div>
 <% end %>
 ```
@@ -546,14 +551,14 @@ app/views/folders/show.html.erb
       
       <div class="d-flex flex-wrap gap-2 mt-3">
         <% if @folder.user == current_user %>
-          <%= link_to 'Add File', new_user_file_path(folder_id: @folder.id), class: 'btn btn-sm btn-success' %>
-          <%= link_to 'Edit', edit_folder_path(@folder), class: 'btn btn-sm btn-outline-secondary' %>
+          <%= link_to 'Add File', new_user_file_path(folder_id: @folder.id), class: 'btn btn-success' %>
+          <%= link_to 'Edit', edit_folder_path(@folder), class: 'btn btn-outline-secondary' %>
           <%= link_to 'Delete', @folder, 
                       method: :delete, 
                       data: { turbo_method: 'delete', turbo_confirm: "Are you sure?" }, 
-                      class: 'btn btn-sm btn-outline-danger' %>
+                      class: 'btn btn-outline-danger' %>
         <% end %>
-        <%= link_to 'Back', folders_path, class: 'btn btn-sm btn-outline-primary' %>
+        <%= link_to 'Back', folders_path, class: 'btn btn-outline-primary' %>
       </div>
     </div>
   </div>
@@ -588,13 +593,13 @@ app/views/folders/show.html.erb
               
               <div class="mt-auto">
                 <div class="d-flex justify-content-between">
-                  <%= link_to 'Show', user_file, class: 'btn btn-sm btn-outline-primary' %>
+                  <%= link_to 'Show', user_file, class: 'btn btn-outline-primary' %>
                   <% if @folder.user == current_user %>
-                    <%= link_to 'Edit', edit_user_file_path(user_file), class: 'btn btn-sm btn-outline-secondary' %>
+                    <%= link_to 'Edit', edit_user_file_path(user_file), class: 'btn btn-outline-secondary' %>
                     <%= link_to 'Delete', user_file, 
                                 method: :delete, 
                                 data: { turbo_method: 'delete', turbo_confirm: "Are you sure?" }, 
-                                class: 'btn btn-sm btn-outline-danger' %>
+                                class: 'btn btn-outline-danger' %>
                   <% end %>
                 </div>
               </div>
