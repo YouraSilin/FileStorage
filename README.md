@@ -408,53 +408,42 @@ app/views/user_files/show.html.erb
 ```
 app/views/user_files/index.html.erb
 ```erb
-<div class="mb-4">
-  <%= link_to new_user_file_path, class: 'btn btn-primary' do %>
-    New User File
-  <% end %>
-</div>
-<% if notice.present? %>
-    <div class="alert alert-success alert-dismissible fade show">
-      <%= notice %>
-      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    </div>
-  <% end %>
-<div class="row">
+<div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-4">
   <% @user_files.each do |user_file| %>
-    <div class="col mb-4">
+    <div class="col">
       <div class="card h-100">
         <% if user_file.file.attached? %>
           <% preview = user_file.high_quality_preview %>
           <% if preview %>
-            <%= image_tag preview, class: 'card-img-top' %>
+            <div class="card-img-top-container">
+              <%= image_tag preview, class: 'card-img-top' %>
+            </div>
           <% else %>
-            <div class="card-img-top bg-light d-flex align-items-center justify-content-center" style="height: 200px;">
-              <i class="<%= user_file.icon_for_file%> fs-1"></i>
+            <div class="card-img-top bg-light d-flex align-items-center justify-content-center" style="height: 150px;">
+              <i class="<%= user_file.icon_for_file %> fs-1"></i>
             </div>
           <% end %>
         <% end %>
         
-        <div class="card-body">
-          <h5 class="card-title">
+        <div class="card-body d-flex flex-column">
+          <h5 class="card-title text-truncate" title="<%= user_file.file.filename %>">
             <%= user_file.file.filename %>
           </h5>
-          <div class="d-flex align-items-center mb-3">
-
-          <i class="bi bi-folder<%= user_file.folder.is_public ? '' : '-x' %> fs-3 me-3"></i>
-              <div>
-                <h5><%= link_to user_file.folder.name, user_file.folder, class: 'link-dark text-decoration-none' %></h5>
-                <span class="badge bg-<%= user_file.folder.is_public ? 'success' : 'secondary' %>">
-                  <%= user_file.folder.is_public ? 'Public' : 'Private' %>
-                </span>
-              </div>
-        
+          
+          <div class="d-flex align-items-center mb-2">
+            <i class="bi bi-folder<%= user_file.folder.is_public ? '' : '-x' %> me-2"></i>
+            <small class="text-muted"><%= user_file.folder.name %></small>
           </div>
-          <div class="card-footer bg-white">
-            <%= link_to 'Show', user_file, class: 'btn btn-sm btn-outline-primary' %>
-            <%= link_to 'Edit', edit_user_file_path(user_file), class: 'btn btn-sm btn-outline-secondary' %>
-            <%= link_to 'Delete', user_file, 
-                        method: :delete, data: { turbo_method: 'delete', turbo_confirm: "вы уверены?" }, 
-                        class: 'btn btn-sm btn-outline-danger' %>
+          
+          <div class="mt-auto">
+            <div class="d-flex justify-content-between">
+              <%= link_to 'Show', user_file, class: 'btn btn-sm btn-outline-primary' %>
+              <%= link_to 'Edit', edit_user_file_path(user_file), class: 'btn btn-sm btn-outline-secondary' %>
+              <%= link_to 'Delete', user_file, 
+                          method: :delete, 
+                          data: { turbo_method: 'delete', turbo_confirm: "Are you sure?" }, 
+                          class: 'btn btn-sm btn-outline-danger' %>
+            </div>
           </div>
         </div>
       </div>
@@ -689,6 +678,39 @@ app/views/layouts/application.html.erb
 }
 .folder-card:hover {
   transform: scale(1.1);
+}
+
+/* Cards layout */
+.card-img-top-container {
+  height: 200px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #f8f9fa;
+  
+  .card-img-top {
+    object-fit: contain;
+    max-height: 100%;
+    width: auto;
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 576px) {
+  .card-img-top-container {
+    height: 150px;
+  }
+  
+  .card-body {
+    padding: 1rem;
+  }
+}
+
+/* Ensure buttons stay in one line */
+.btn-group-vertical {
+  flex-direction: row !important;
+  gap: 0.5rem;
 }
 ```
 Настройка маршрутов
