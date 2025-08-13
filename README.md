@@ -435,7 +435,7 @@ app/views/user_files/index.html.erb
           
           <div class="d-flex align-items-center mb-2">
             <i class="bi bi-folder<%= user_file.folder.is_public ? '' : '-x' %> me-2"></i>
-            <small class="text-muted"><%= user_file.folder.name %></small>
+            <small class="text-muted"><%= link_to user_file.folder.name, user_file.folder, class: 'link-dark text-decoration-none' %></small>      
           </div>
 
           <div class="mt-auto">
