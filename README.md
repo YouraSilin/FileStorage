@@ -17,7 +17,7 @@ wget https://raw.githubusercontent.com/YouraSilin/FileStorage/refs/heads/master/
 
 touch Gemfile.lock
 
-docker compose build
+docker-compose build --no-cache
 
 docker compose run --no-deps web rails new . --force --database=postgresql --css=bootstrap
 
