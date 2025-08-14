@@ -911,3 +911,544 @@ def create
     end
   end
 ```
+Добавление различных способов загрузки
+Сначала добавим необходимые гемы в Gemfile:
+```ruby
+gem 'down', '~> 5.4.1' # Для загрузки файлов по URL
+gem 'marcel' # Для определения MIME типа
+```
+```bash
+docker compose exec web rails bundle install
+docker compose exec web rails generate stimulus file_uploader
+sudo chown -R $USER:$USER .
+```
+Редактируем app/javascript/controllers/file_uploader_controller.js:
+```js
+import { Controller } from "@hotwired/stimulus"
+
+export default class extends Controller {
+  static targets = ["dropzone", "fileInput", "urlInput", "urlForm", "progress", "preview", "submit"]
+  
+  connect() {
+    this.setupDropzone()
+    this.setupPasteHandler()
+    console.log("File Uploader Controller connected")
+  }
+
+  // Триггер выбора файлов
+  triggerFileSelect() {
+    this.fileInputTarget.click()
+  }
+
+  // Обработка выбора файлов через input
+  handleFileSelect(event) {
+    const files = event.target.files
+    if (files && files.length > 0) {
+      this.handleFiles(files)
+      event.target.value = '' // Сброс значения для возможности повторной загрузки тех же файлов
+    }
+  }
+  
+  // Настройка drag and drop
+  setupDropzone() {
+    this.dropzoneTarget.addEventListener('dragover', (e) => {
+      e.preventDefault()
+      this.dropzoneTarget.classList.add('dragover')
+    })
+
+    this.dropzoneTarget.addEventListener('dragleave', () => {
+      this.dropzoneTarget.classList.remove('dragover')
+    })
+
+    this.dropzoneTarget.addEventListener('drop', (e) => {
+      e.preventDefault()
+      this.dropzoneTarget.classList.remove('dragover')
+      
+      if (e.dataTransfer.files.length > 0) {
+        this.handleFiles(e.dataTransfer.files)
+      } else if (e.dataTransfer.getData('text')) {
+        this.handlePotentialUrl(e.dataTransfer.getData('text'))
+      }
+    })
+  }
+
+  // Обработчик вставки из буфера обмена
+  setupPasteHandler() {
+    document.addEventListener('paste', (e) => {
+      if (e.clipboardData.files.length > 0) {
+        this.handleFiles(e.clipboardData.files)
+      } else if (e.clipboardData.getData('text')) {
+        this.handlePotentialUrl(e.clipboardData.getData('text'))
+      }
+    })
+  }
+
+  // Обработка выбора файлов через input
+  handleFileSelect(event) {
+    if (event.target.files.length > 0) {
+      this.handleFiles(event.target.files)
+      event.target.value = '' // Сброс значения для возможности повторной загрузки тех же файлов
+    }
+  }
+
+  // Обработка URL из формы
+  handleUrlSubmit(event) {
+    event.preventDefault()
+    const url = this.urlInputTarget.value.trim()
+    if (url) {
+      this.downloadFromUrl(url)
+      this.urlInputTarget.value = ''
+    }
+  }
+
+  // Проверка, является ли текст URL
+  handlePotentialUrl(text) {
+    if (this.isValidUrl(text)) {
+      if (confirm(`Download file from ${text}?`)) {
+        this.downloadFromUrl(text)
+      }
+    }
+  }
+
+  // Валидация URL
+  isValidUrl(string) {
+    try {
+      new URL(string)
+      return true
+    } catch (_) {
+      return false
+    }
+  }
+
+  // Загрузка файлов по URL
+  async downloadFromUrl(url) {
+    this.showProgress(`Downloading from ${url}...`)
+    
+    try {
+      const response = await fetch('/file_uploader/download', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': document.querySelector("[name='csrf-token']").content
+        },
+        body: JSON.stringify({ 
+          url: url, 
+          folder_id: this.folderId 
+        })
+      })
+
+      const data = await response.json()
+      
+      if (response.ok) {
+        this.addPreview(data.file)
+      } else {
+        throw new Error(data.error || 'Download failed')
+      }
+    } catch (error) {
+      console.error('Download error:', error)
+      alert(`Error downloading file: ${error.message}`)
+    } finally {
+      this.hideProgress()
+    }
+  }
+
+  // Обработка локальных файлов
+  async handleFiles(files) {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      this.showProgress(`Uploading ${file.name}...`)
+
+      try {
+        const formData = new FormData()
+        formData.append('user_file[file]', file)
+        if (this.folderId) {
+          formData.append('user_file[folder_id]', this.folderId)
+        }
+
+        const response = await fetch(this.element.action, {
+          method: 'POST',
+          body: formData,
+          headers: {
+            'X-CSRF-Token': document.querySelector("[name='csrf-token']").content,
+            'Accept': 'application/json'
+          }
+        })
+
+        const data = await response.json()
+        
+        if (response.ok) {
+          this.addPreview(data.file)
+        } else {
+          throw new Error(data.error || 'Upload failed')
+        }
+      } catch (error) {
+        console.error('Upload error:', error)
+        alert(`Error uploading ${file.name}: ${error.message}`)
+      } finally {
+        this.hideProgress()
+      }
+    }
+  }
+
+  // Добавление превью загруженного файла
+  addPreview(fileData) {
+    const previewItem = document.createElement('div')
+    previewItem.className = 'preview-item'
+    previewItem.innerHTML = `
+      <div class="card mb-2">
+        <div class="card-body">
+          <div class="d-flex align-items-center">
+            <i class="${this.getFileIcon(fileData.content_type)} me-2"></i>
+            <span>${fileData.filename}</span>
+          </div>
+        </div>
+      </div>
+    `
+    this.previewTarget.appendChild(previewItem)
+  }
+
+  // Получение иконки для типа файла
+  getFileIcon(contentType) {
+    if (contentType.startsWith('image/')) return 'bi bi-image'
+    if (contentType === 'application/pdf') return 'bi bi-file-earmark-pdf'
+    return 'bi bi-file-earmark'
+  }
+
+  // Показать прогресс
+  showProgress(message) {
+    this.progressTarget.textContent = message
+    this.progressTarget.style.display = 'block'
+    this.submitTarget.disabled = true
+  }
+
+  // Скрыть прогресс
+  hideProgress() {
+    this.progressTarget.style.display = 'none'
+    this.submitTarget.disabled = false
+  }
+
+  get folderId() {
+    return this.data.get('folderId') || document.querySelector('#user_file_folder_id')?.value
+  }
+}
+```
+В app/javascript/controllers/index.js должно быть:
+```js
+// Import and register all your controllers from the importmap via controllers/**/*_controller
+import { application } from "controllers/application"
+import { eagerLoadControllersFrom } from "@hotwired/stimulus-loading"
+eagerLoadControllersFrom("controllers", application)
+
+import FileUploadController from "./file_upload_controller"
+application.register("file-upload", FileUploadController)
+
+import FileUploaderController from "./file_uploader_controller"
+application.register("file-uploader", FileUploaderController)
+```
+В config/importmap.rb должно быть:
+```ruby
+# Pin npm packages by running ./bin/importmap
+
+pin "application"
+pin "@hotwired/turbo-rails", to: "turbo.min.js"
+pin "@hotwired/stimulus", to: "stimulus.min.js"
+pin "@hotwired/stimulus-loading", to: "stimulus-loading.js"
+pin_all_from "app/javascript/controllers", under: "controllers"
+pin "bootstrap", to: "bootstrap.bundle.min.js"
+
+pin_all_from "app/javascript/controllers", under: "controllers"
+```
+Добавим маршрут для обработки загрузки по URL в config/routes.rb:
+```ruby
+Rails.application.routes.draw do
+  devise_for :users
+  resources :folders
+  resources :user_files
+  
+  post '/file_uploader/download', to: 'file_uploader#download'
+  
+  root to: "user_files#index"
+end
+```
+Создадим контроллер для обработки загрузки по URL:
+```bash
+docker compose exec web rails generate controller FileUploader
+sudo chown -R $USER:$USER .
+```
+Редактируем app/controllers/file_uploader_controller.rb:
+```ruby
+class FileUploaderController < ApplicationController
+  before_action :authenticate_user!
+
+  def download
+    url = params[:url]
+    folder_id = params[:folder_id]
+
+    begin
+      tempfile = Down.download(url)
+      user_file = current_user.user_files.build(folder_id: folder_id)
+      user_file.file.attach(io: tempfile, filename: File.basename(tempfile.path))
+
+      if user_file.save
+        render json: { 
+          file: {
+            filename: user_file.file.filename.to_s,
+            content_type: user_file.file.content_type,
+            url: url_for(user_file.file)
+          }
+        }, status: :created
+      else
+        render json: { error: user_file.errors.full_messages.join(', ') }, status: :unprocessable_entity
+      end
+    rescue Down::Error => e
+      render json: { error: "Failed to download file: #{e.message}" }, status: :unprocessable_entity
+    ensure
+      tempfile.close! if tempfile
+    end
+  end
+end
+```
+Обновим форму загрузки файлов app/views/user_files/_form.html.erb:
+```erb
+<div class="col-md-3 mb-4 folder-card" id="<%= dom_id folder %>">
+  <div class="card h-100">
+    <%= link_to folder, class: 'link-dark text-decoration-none stretched-link', style: 'z-index: 1;' do %>
+      <div class="card-body text-center">
+        <div class="folder-icon mb-3">
+          <i class="bi bi-folder<%= folder.is_public ? '' : '-x' %> fs-1"></i>
+        </div>
+        <h5 class="card-title text-dark"><%= folder.name %></h5>
+        <div class="badge bg-<%= folder.is_public ? 'success' : 'secondary' %>">
+          <%= folder.is_public ? 'Public' : 'Private' %>
+        </div>
+      </div>
+    <% end %>
+    <% if folder.user == current_user %>
+      <div class="card-footer bg-white position-relative" style="z-index: 2;">
+        <%= link_to 'Edit', edit_folder_path(folder), class: 'btn btn-outline-secondary' %>
+        <%= link_to 'Delete', folder, 
+                    method: :delete, 
+                    data: { turbo_method: 'delete', turbo_confirm: "вы уверены?" }, 
+                    class: 'btn btn-outline-danger' %>
+      </div>
+    <% end %>
+  </div>
+</div>
+```
+Добавим стили в app/assets/stylesheets/application.bootstrap.scss:
+```css
+/* File Uploader Styles */
+.file-uploader-container {
+  .dropzone {
+    transition: all 0.3s;
+    background-color: #f8f9fa;
+    cursor: pointer;
+    
+    &:hover {
+      background-color: #e9ecef;
+    }
+    
+    &.dragover {
+      background-color: #e2e6ea;
+      border-color: #0d6efd;
+    }
+  }
+  
+  .preview-container {
+    max-height: 300px;
+    overflow-y: auto;
+    
+    .preview-item {
+      &:not(:last-child) {
+        margin-bottom: 0.5rem;
+      }
+    }
+  }
+  
+  .progress-indicator {
+    &:before {
+      content: '';
+      display: inline-block;
+      width: 1rem;
+      height: 1rem;
+      border: 2px solid rgba(0,0,0,0.1);
+      border-radius: 50%;
+      border-top-color: #0d6efd;
+      animation: spin 1s linear infinite;
+      margin-right: 0.5rem;
+    }
+  }
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+```
+Обновим контроллер UserFilesController:
+```ruby
+class UserFilesController < ApplicationController
+  before_action :authenticate_user!
+  before_action :set_user_file, only: %i[ show edit update destroy ]
+  before_action :authorize_user, only: %i[ edit update destroy ]
+
+  def index
+    @user_files =
+      if params[:mine] == 'true'
+        current_user.user_files.includes(:folder, file_attachment: :blob)
+      else
+        UserFile.joins(:folder).merge(Folder.public_folders).includes(:folder, file_attachment: :blob)
+      end
+  end
+
+  def show
+  end
+
+  def new
+    @user_file = UserFile.new
+    @user_file.folder_id = params[:folder_id] if params[:folder_id]
+    @folders = current_user.folders
+  end
+
+  def edit
+    @folders = current_user.folders
+  end
+
+   def create
+    @user_file = current_user.user_files.build(user_file_params)
+    @folders = current_user.folders
+
+    respond_to do |format|
+      if @user_file.save
+        format.html { redirect_to user_files_path, notice: "File was successfully uploaded." }
+        format.json { render json: { 
+          file: {
+            filename: @user_file.file.filename.to_s,
+            content_type: @user_file.file.content_type,
+            url: url_for(@user_file.file)
+          }
+        }, status: :created }
+      else
+        format.html { render :new, status: :unprocessable_entity }
+        format.json { render json: { error: @user_file.errors.full_messages.join(', ') }, status: :unprocessable_entity }
+      end
+    end
+  end
+
+  def update
+    respond_to do |format|
+      if @user_file.update(user_file_params)
+        format.html { redirect_to user_files_path, notice: "файл сохранен" }
+      else
+        format.html { render :edit, status: :unprocessable_entity }
+      end
+    end
+  end
+
+  def destroy
+    @user_file.destroy!
+    respond_to do |format|
+      format.html { redirect_to user_files_path, notice: "файл удален" }
+    end
+  end
+
+  private
+    # Use callbacks to share common setup or constraints between actions.
+    def set_user_file
+      @user_file = UserFile.find(params[:id])
+    end
+
+    # Only allow a list of trusted parameters through.
+    def user_file_params
+      params.require(:user_file).permit(:folder_id, :file)
+    end
+
+    def authorize_user
+    if @user_file.folder.nil? || @user_file.folder.user != current_user
+      redirect_to user_files_path, 
+                 alert: "You are not authorized to perform this action.",
+                 status: :forbidden
+    end
+  end
+end
+```
+Обновим модель UserFile для обработки загрузки по URL:
+```ruby
+class UserFile < ApplicationRecord
+  belongs_to :folder
+  has_one_attached :file
+
+  before_validation :set_name_from_file, if: -> { file.attached? }
+
+  # Проверяем, что файл прикреплен
+  validate :file_attached
+
+  # Check if file is previewable
+  def previewable?
+    return false unless file.attached?
+    file.image? || (file.content_type == 'application/pdf' && file.previewable?)
+  end
+
+  # Generate preview for the file
+  def file_preview
+    return unless file.attached?
+
+    if file.image?
+      file.variant(resize_to_limit: [200, 200]).processed
+    
+    elsif file.content_type == 'application/pdf' && file.previewable?
+      file.preview(resize_to_limit: [200, 200], format: :jpg).processed
+    end
+    rescue ActiveStorage::FileNotFoundError, ActiveStorage::UnpreviewableError => e
+        Rails.logger.error "Preview error: #{e.message}"
+        nil
+  end
+
+  def high_quality_preview
+    return unless file.attached?
+
+    begin
+      if file.image?
+        # Для изображений
+        file.variant(
+          resize_to_limit: [800, 800],
+          saver: { quality: 90, strip: true }
+        ).processed
+      end
+    rescue ActiveStorage::UnpreviewableError, ActiveStorage::FileNotFoundError => e
+      Rails.logger.error "Preview generation failed: #{e.message}"
+      nil
+    end
+  end
+
+  def icon_for_file
+    return 'bi bi-file-earmark' unless file.attached?
+
+    case file.content_type
+    when /image/ then 'bi bi-image'
+    when 'application/pdf' then 'bi bi-file-earmark-pdf'
+    else 'bi bi-file-earmark'
+    end
+  end
+
+  def self.create_from_url(url, user, folder_id = nil)
+    tempfile = Down.download(url)
+    user_file = user.user_files.build(folder_id: folder_id)
+    user_file.file.attach(io: tempfile, filename: File.basename(tempfile.path))
+    user_file.save
+    user_file
+  ensure
+    tempfile.close! if tempfile
+  end
+
+  private
+
+    def set_name_from_file
+      self.name = file.filename.to_s
+    end
+
+    def file_attached
+      errors.add(:file, "must be attached") unless file.attached?
+    end
+end
+```
