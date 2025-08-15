@@ -1786,4 +1786,8 @@ app/views/layouts/application.html.erb
 ```erb
 <div class="messages-container mb-3"></div>
 ```
-
+```bash
+docker compose exec web rails assets:clobber
+docker compose exec web rails assets:precompile
+docker-compose up --remove-orphans
+```
