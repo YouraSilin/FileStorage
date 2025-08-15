@@ -919,7 +919,9 @@ gem 'down', '~> 5.4.1' # Для загрузки файлов по URL
 gem 'marcel' # Для определения MIME типа
 ```
 ```bash
-docker compose exec web rails bundle install
+docker compose build
+sudo chown -R $USER:$USER .
+docker-compose up --remove-orphans
 docker compose exec web rails generate stimulus file_uploader
 sudo chown -R $USER:$USER .
 ```
