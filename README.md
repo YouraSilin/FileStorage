@@ -930,67 +930,176 @@ sudo chown -R $USER:$USER .
 import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
-  static targets = ["dropzone", "fileInput", "urlInput", "urlForm", "progress", "preview", "submit"]
+  static targets = [
+    "fileInput", 
+    "urlInput", 
+    "progress", 
+    "preview", 
+    "submit",
+    "submitText",
+    "submitSpinner",
+    "dropzone",
+    "form"
+  ]
   
+  // Добавляем переменные для хранения состояния
+  initialize() {
+    this.filesToUpload = []
+    this.urlsToDownload = []
+    this.uploadResults = []
+  }
+
   connect() {
+    console.log("File Uploader Controller connected")
+    this.setupEventHandlers()
     this.setupDropzone()
     this.setupPasteHandler()
-    console.log("File Uploader Controller connected")
   }
 
-  // Триггер выбора файлов
-  triggerFileSelect() {
-    this.fileInputTarget.click()
+  setupEventHandlers() {
+    // Обработчик для кнопки URL
+    const urlSubmitBtn = this.element.querySelector('[data-action="click->file-uploader#handleUrlSubmit"]')
+    if (urlSubmitBtn) {
+      urlSubmitBtn.addEventListener('click', this.handleUrlSubmit.bind(this))
+    }
+
+    // Обработчик сабмита формы
+    this.formTarget.addEventListener('submit', (e) => this.handleFormSubmit(e))
   }
 
-  // Обработка выбора файлов через input
-  handleFileSelect(event) {
-    const files = event.target.files
-    if (files && files.length > 0) {
-      this.handleFiles(files)
-      event.target.value = '' // Сброс значения для возможности повторной загрузки тех же файлов
+  handleFormSubmit(event) {
+    event.preventDefault()
+    
+    // Если есть файлы для загрузки или URL - обрабатываем их
+    if (this.filesToUpload.length > 0 || this.urlsToDownload.length > 0) {
+      this.processAllUploads()
+    } else {
+      // Если ничего не выбрано - просто редирект
+      this.redirectToFolder()
     }
   }
   
+  async processAllUploads() {
+    this.toggleSubmitButton(true)
+    let allSuccess = true
+    
+    try {
+      // Обрабатываем файлы
+      for (const file of this.filesToUpload) {
+        const success = await this.uploadFile(file)
+        if (!success) allSuccess = false
+      }
+      
+      // Обрабатываем URL
+      for (const url of this.urlsToDownload) {
+        const success = await this.downloadFromUrl(url)
+        if (!success) allSuccess = false
+      }
+      
+      if (allSuccess) {
+        this.showTemporaryMessage('Все файлы успешно загружены', 'success')
+        this.redirectToFolder()
+      }
+    } finally {
+      this.toggleSubmitButton(false)
+      // Очищаем очереди после обработки
+      this.filesToUpload = []
+      this.urlsToDownload = []
+    }
+  }
+
+  async uploadFile(file) {
+    this.showProgress(`Загружаем ${file.name}...`)
+    
+    try {
+      const formData = new FormData()
+      formData.append('user_file[file]', file)
+      formData.append('user_file[folder_id]', this.folderId)
+
+      const response = await fetch(this.formTarget.action, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'X-CSRF-Token': this.getCSRFToken(),
+          'Accept': 'application/json'
+        }
+      })
+
+      const data = await response.json()
+      
+      if (response.ok) {
+        this.addPreview(data.file)
+        this.showTemporaryMessage(`${file.name} успешно загружен`, 'success')
+        return true
+      } else {
+        throw new Error(data.error || 'Ошибка загрузки')
+      }
+    } catch (error) {
+      console.error('Upload error:', error)
+      this.showTemporaryMessage(`Ошибка при загрузке ${file.name}: ${error.message}`, 'danger')
+      return false
+    } finally {
+      this.hideProgress()
+    }
+  }
+
+  // Триггер выбора файлов
+  triggerFileSelect(event) {
+    event.preventDefault()
+    this.fileInputTarget.click()
+  }
+
   // Настройка drag and drop
   setupDropzone() {
+    if (!this.hasDropzoneTarget) return
+    
     this.dropzoneTarget.addEventListener('dragover', (e) => {
       e.preventDefault()
+      e.stopPropagation()
       this.dropzoneTarget.classList.add('dragover')
     })
 
-    this.dropzoneTarget.addEventListener('dragleave', () => {
+    this.dropzoneTarget.addEventListener('dragleave', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
       this.dropzoneTarget.classList.remove('dragover')
     })
 
     this.dropzoneTarget.addEventListener('drop', (e) => {
       e.preventDefault()
+      e.stopPropagation()
       this.dropzoneTarget.classList.remove('dragover')
       
       if (e.dataTransfer.files.length > 0) {
+        // Устанавливаем файлы в input и запускаем обработку
+        this.fileInputTarget.files = e.dataTransfer.files
         this.handleFiles(e.dataTransfer.files)
-      } else if (e.dataTransfer.getData('text')) {
-        this.handlePotentialUrl(e.dataTransfer.getData('text'))
       }
     })
   }
-
-  // Обработчик вставки из буфера обмена
+  
+  // Обработка вставки из буфера обмена
   setupPasteHandler() {
     document.addEventListener('paste', (e) => {
       if (e.clipboardData.files.length > 0) {
         this.handleFiles(e.clipboardData.files)
-      } else if (e.clipboardData.getData('text')) {
-        this.handlePotentialUrl(e.clipboardData.getData('text'))
       }
     })
+  }
+
+  // Обработка переданных файлов/текста
+  processDroppedItems(dataTransfer) {
+    if (dataTransfer.files.length > 0) {
+      this.handleFiles(dataTransfer.files)
+    } else if (dataTransfer.getData('text')) {
+      this.handlePotentialUrl(dataTransfer.getData('text'))
+    }
   }
 
   // Обработка выбора файлов через input
   handleFileSelect(event) {
     if (event.target.files.length > 0) {
       this.handleFiles(event.target.files)
-      event.target.value = '' // Сброс значения для возможности повторной загрузки тех же файлов
     }
   }
 
@@ -998,16 +1107,27 @@ export default class extends Controller {
   handleUrlSubmit(event) {
     event.preventDefault()
     const url = this.urlInputTarget.value.trim()
-    if (url) {
-      this.downloadFromUrl(url)
-      this.urlInputTarget.value = ''
+    
+    if (!url) {
+      this.showTemporaryMessage('Пожалуйста, введите URL', 'warning')
+      return
     }
+
+    if (!this.isValidUrl(url)) {
+      this.showTemporaryMessage('Некорректный URL', 'danger')
+      return
+    }
+
+    this.urlsToDownload.push(url)
+    this.addPreview({filename: new URL(url).pathname.split('/').pop(), content_type: 'application/octet-stream'})
+    this.showTemporaryMessage(`URL добавлен. Нажмите "Загрузить" для скачивания.`, 'info')
+    this.urlInputTarget.value = ''
   }
 
-  // Проверка, является ли текст URL
+  // Проверка и подтверждение URL
   handlePotentialUrl(text) {
     if (this.isValidUrl(text)) {
-      if (confirm(`Download file from ${text}?`)) {
+      if (confirm(`Загрузить файл по ссылке:\n${text}?`)) {
         this.downloadFromUrl(text)
       }
     }
@@ -1025,14 +1145,17 @@ export default class extends Controller {
 
   // Загрузка файлов по URL
   async downloadFromUrl(url) {
-    this.showProgress(`Downloading from ${url}...`)
+    this.showProgress(`Загрузка по ссылке: ${url}...`)
+    this.urlInputTarget.value = ''
+    let downloadSuccess = false
     
     try {
       const response = await fetch('/file_uploader/download', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': document.querySelector("[name='csrf-token']").content
+          'X-CSRF-Token': this.getCSRFToken(),
+          'Accept': 'application/json'
         },
         body: JSON.stringify({ 
           url: url, 
@@ -1044,56 +1167,40 @@ export default class extends Controller {
       
       if (response.ok) {
         this.addPreview(data.file)
+        this.showTemporaryMessage('Файл успешно загружен', 'success')
+        downloadSuccess = true
       } else {
-        throw new Error(data.error || 'Download failed')
+        throw new Error(data.error || 'Ошибка загрузки')
       }
     } catch (error) {
       console.error('Download error:', error)
-      alert(`Error downloading file: ${error.message}`)
+      this.showTemporaryMessage(`Ошибка: ${error.message}`, 'danger')
     } finally {
       this.hideProgress()
+      if (downloadSuccess) {
+        this.redirectToFolder()
+      }
     }
   }
 
   // Обработка локальных файлов
-  async handleFiles(files) {
+  handleFiles(files) {
     for (let i = 0; i < files.length; i++) {
-      const file = files[i]
-      this.showProgress(`Uploading ${file.name}...`)
+      this.filesToUpload.push(files[i])
+      this.addPreview({filename: files[i].name, content_type: files[i].type})
+    }
+    this.showTemporaryMessage(`Добавлено ${files.length} файлов. Нажмите "Загрузить" для отправки.`, 'info')
+  }
 
-      try {
-        const formData = new FormData()
-        formData.append('user_file[file]', file)
-        if (this.folderId) {
-          formData.append('user_file[folder_id]', this.folderId)
-        }
-
-        const response = await fetch(this.element.action, {
-          method: 'POST',
-          body: formData,
-          headers: {
-            'X-CSRF-Token': document.querySelector("[name='csrf-token']").content,
-            'Accept': 'application/json'
-          }
-        })
-
-        const data = await response.json()
-        
-        if (response.ok) {
-          this.addPreview(data.file)
-        } else {
-          throw new Error(data.error || 'Upload failed')
-        }
-      } catch (error) {
-        console.error('Upload error:', error)
-        alert(`Error uploading ${file.name}: ${error.message}`)
-      } finally {
-        this.hideProgress()
-      }
+  redirectToFolder() {
+    if (this.folderId) {
+      window.location.href = `/folders/${this.folderId}`
+    } else {
+      window.location.href = '/folders'
     }
   }
 
-  // Добавление превью загруженного файла
+  // Добавление превью файла
   addPreview(fileData) {
     const previewItem = document.createElement('div')
     previewItem.className = 'preview-item'
@@ -1114,22 +1221,50 @@ export default class extends Controller {
   getFileIcon(contentType) {
     if (contentType.startsWith('image/')) return 'bi bi-image'
     if (contentType === 'application/pdf') return 'bi bi-file-earmark-pdf'
+    if (contentType.includes('spreadsheet')) return 'bi bi-file-earmark-excel'
+    if (contentType.includes('word')) return 'bi bi-file-earmark-word'
     return 'bi bi-file-earmark'
   }
 
-  // Показать прогресс
+  // Показать сообщение о прогрессе
   showProgress(message) {
     this.progressTarget.textContent = message
     this.progressTarget.style.display = 'block'
-    this.submitTarget.disabled = true
   }
 
-  // Скрыть прогресс
+  // Скрыть сообщение о прогрессе
   hideProgress() {
     this.progressTarget.style.display = 'none'
-    this.submitTarget.disabled = false
   }
 
+  // Показать временное сообщение
+  showTemporaryMessage(message, type = 'info') {
+    const messageElement = document.createElement('div')
+    messageElement.className = `alert alert-${type} alert-dismissible fade show`
+    messageElement.innerHTML = `
+      ${message}
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `
+    
+    const container = this.element.querySelector('.messages-container') || document.body
+    container.prepend(messageElement)
+    
+    setTimeout(() => messageElement.remove(), 5000)
+  }
+
+  // Переключение состояния кнопки отправки
+  toggleSubmitButton(loading) {
+    this.submitTarget.disabled = loading
+    this.submitTextTarget.classList.toggle('d-none', loading)
+    this.submitSpinnerTarget.classList.toggle('d-none', !loading)
+  }
+
+  // Получение CSRF токена
+  getCSRFToken() {
+    return document.querySelector("[name='csrf-token']").content
+  }
+
+  // Получение ID папки
   get folderId() {
     return this.data.get('folderId') || document.querySelector('#user_file_folder_id')?.value
   }
@@ -1180,8 +1315,53 @@ sudo chown -R $USER:$USER .
 ```
 Редактируем app/controllers/file_uploader_controller.rb:
 ```ruby
-class FileUploaderController < ApplicationController
+class UserFilesController < ApplicationController
   before_action :authenticate_user!
+  before_action :set_user_file, only: %i[ show edit update destroy ]
+  before_action :authorize_user, only: %i[ edit update destroy ]
+
+  def index
+    @user_files =
+      if params[:mine] == 'true'
+        current_user.user_files.includes(:folder, file_attachment: :blob)
+      else
+        UserFile.joins(:folder).merge(Folder.public_folders).includes(:folder, file_attachment: :blob)
+      end
+  end
+
+  def show
+  end
+
+  def new
+    @user_file = UserFile.new
+    @user_file.folder_id = params[:folder_id] if params[:folder_id]
+    @folders = current_user.folders
+  end
+
+  def edit
+    @folders = current_user.folders
+  end
+
+  def create
+    @user_file = current_user.user_files.build(user_file_params)
+    @folders = current_user.folders
+
+    respond_to do |format|
+      if @user_file.save
+        format.html { redirect_to user_files_path, notice: "File was successfully uploaded." }
+        format.json { render json: { 
+          file: {
+            filename: @user_file.file.filename.to_s,
+            content_type: @user_file.file.content_type,
+            url: url_for(@user_file.file)
+          }
+        }, status: :created }
+      else
+        format.html { render :new, status: :unprocessable_entity }
+        format.json { render json: { error: @user_file.errors.full_messages.join(', ') }, status: :unprocessable_entity }
+      end
+    end
+  end
 
   def download
     url = params[:url]
@@ -1190,11 +1370,16 @@ class FileUploaderController < ApplicationController
     begin
       tempfile = Down.download(url)
       user_file = current_user.user_files.build(folder_id: folder_id)
-      user_file.file.attach(io: tempfile, filename: File.basename(tempfile.path))
+      user_file.file.attach(
+        io: tempfile,
+        filename: File.basename(url).split('?').first, # Убираем параметры из имени файла
+        content_type: Marcel::MimeType.for(tempfile)
+      )
 
       if user_file.save
         render json: { 
           file: {
+            id: user_file.id,
             filename: user_file.file.filename.to_s,
             content_type: user_file.file.content_type,
             url: url_for(user_file.file)
@@ -1204,9 +1389,45 @@ class FileUploaderController < ApplicationController
         render json: { error: user_file.errors.full_messages.join(', ') }, status: :unprocessable_entity
       end
     rescue Down::Error => e
-      render json: { error: "Failed to download file: #{e.message}" }, status: :unprocessable_entity
+      render json: { error: "Не удалось загрузить файл: #{e.message}" }, status: :unprocessable_entity
     ensure
       tempfile.close! if tempfile
+    end
+  end
+
+  def update
+    respond_to do |format|
+      if @user_file.update(user_file_params)
+        format.html { redirect_to user_files_path, notice: "файл сохранен" }
+      else
+        format.html { render :edit, status: :unprocessable_entity }
+      end
+    end
+  end
+
+  def destroy
+    @user_file.destroy!
+    respond_to do |format|
+      format.html { redirect_to user_files_path, notice: "файл удален" }
+    end
+  end
+
+  private
+    # Use callbacks to share common setup or constraints between actions.
+    def set_user_file
+      @user_file = UserFile.find(params[:id])
+    end
+
+    # Only allow a list of trusted parameters through.
+    def user_file_params
+      params.require(:user_file).permit(:folder_id, :file)
+    end
+
+    def authorize_user
+    if @user_file.folder.nil? || @user_file.folder.user != current_user
+      redirect_to user_files_path, 
+                 alert: "You are not authorized to perform this action.",
+                 status: :forbidden
     end
   end
 end
@@ -1222,24 +1443,30 @@ end
         file_uploader_folder_id_value: @user_file.folder_id
       }
     }) do |f| %>
-  
+
   <%= f.error_notification %>
 
   <div class="file-uploader-container mb-4">
     <!-- Dropzone -->
     <div class="dropzone p-4 border rounded text-center mb-3" 
-         data-file-uploader-target="dropzone">
+                        data-file-uploader-target="dropzone">
       <i class="bi bi-cloud-arrow-up fs-1"></i>
       <p class="mt-2">Перетащите файлы сюда или</p>
       <div class="d-flex justify-content-center gap-3">
-        <%= f.file_field :file, 
-            multiple: true,
-            direct_upload: false,
-            class: 'd-none',
-            data: { file_uploader_target: "fileInput", action: "change->file-uploader#handleFileSelect" } %>
+        <%= f.input :file, 
+            as: :file,
+            input_html: { 
+              multiple: true,
+              class: 'd-none',
+              data: { 
+                file_uploader_target: "fileInput",
+                action: "change->file-uploader#handleFileSelect"
+              }
+            },
+            label: false %>
         
         <button type="button" class="btn btn-outline-primary"
-                data-action="click->file-uploader#handleFileSelect">
+                data-action="click->file-uploader#triggerFileSelect">
           Выбрать файлы
         </button>
         
@@ -1251,15 +1478,15 @@ end
     </div>
 
     <!-- URL Form -->
-    <div class="collapse mb-3" id="urlForm" data-file-uploader-target="urlForm">
+    <div class="collapse mb-3" id="urlForm">
       <div class="card card-body">
         <div class="input-group">
-          <%= text_field_tag :file_url, nil, 
-              class: 'form-control',
-              placeholder: 'Введите URL файла...',
-              data: { file_uploader_target: "urlInput" } %>
+          <input type="text" 
+                class="form-control"
+                placeholder="Введите URL файла..."
+                data-file-uploader-target="urlInput">
           <button class="btn btn-primary" type="button"
-                  data-action="file-uploader#handleUrlSubmit">
+                  data-action="click->file-uploader#handleUrlSubmit">
             Загрузить
           </button>
         </div>
@@ -1272,9 +1499,9 @@ end
          data-file-uploader-target="progress"></div>
 
     <!-- Folder selection -->
-    <div class="form-inputs mb-3">
+    <div class="mb-3">
       <% if @user_file.folder_id.present? %>
-        <%= f.hidden_field :folder_id %>
+        <%= f.input :folder_id, as: :hidden %>
         <div class="alert alert-info">
           Файлы будут добавлены в: <strong><%= @user_file.folder.name %></strong>
         </div>
@@ -1282,7 +1509,10 @@ end
         <%= f.association :folder, 
             collection: current_user.folders,
             label: 'Папка',
-            input_html: { class: 'form-select' } %>
+            input_html: { 
+              class: 'form-select',
+              data: { file_uploader_target: "folderSelect" }
+            } %>
       <% end %>
     </div>
 
@@ -1291,9 +1521,13 @@ end
   </div>
 
   <div class="form-actions">
-    <%= f.button :submit, 'Загрузить файлы', 
-                class: 'btn btn-primary',
-                data: { file_uploader_target: "submit" } %>
+    <button type="submit" class="btn btn-primary" data-file-uploader-target="submit">
+      <span data-file-uploader-target="submitText">Загрузить файлы</span>
+      <span class="d-none" data-file-uploader-target="submitSpinner">
+        <span class="spinner-border spinner-border-sm" role="status"></span>
+        Загрузка...
+      </span>
+    </button>
     <%= link_to 'Отмена', @user_file.folder || folders_path, class: 'btn btn-outline-secondary' %>
   </div>
 <% end %>
@@ -1377,7 +1611,7 @@ class UserFilesController < ApplicationController
     @folders = current_user.folders
   end
 
-   def create
+  def create
     @user_file = current_user.user_files.build(user_file_params)
     @folders = current_user.folders
 
@@ -1395,6 +1629,38 @@ class UserFilesController < ApplicationController
         format.html { render :new, status: :unprocessable_entity }
         format.json { render json: { error: @user_file.errors.full_messages.join(', ') }, status: :unprocessable_entity }
       end
+    end
+  end
+
+  def download
+    url = params[:url]
+    folder_id = params[:folder_id]
+
+    begin
+      tempfile = Down.download(url)
+      user_file = current_user.user_files.build(folder_id: folder_id)
+      user_file.file.attach(
+        io: tempfile,
+        filename: File.basename(url).split('?').first, # Убираем параметры из имени файла
+        content_type: Marcel::MimeType.for(tempfile)
+      )
+
+      if user_file.save
+        render json: { 
+          file: {
+            id: user_file.id,
+            filename: user_file.file.filename.to_s,
+            content_type: user_file.file.content_type,
+            url: url_for(user_file.file)
+          }
+        }, status: :created
+      else
+        render json: { error: user_file.errors.full_messages.join(', ') }, status: :unprocessable_entity
+      end
+    rescue Down::Error => e
+      render json: { error: "Не удалось загрузить файл: #{e.message}" }, status: :unprocessable_entity
+    ensure
+      tempfile.close! if tempfile
     end
   end
 
@@ -1515,3 +1781,9 @@ class UserFile < ApplicationRecord
     end
 end
 ```
+Нужно добавить div для сообщений
+app/views/layouts/application.html.erb
+```erb
+<div class="messages-container mb-3"></div>
+```
+
