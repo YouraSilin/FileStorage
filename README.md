@@ -1213,30 +1213,90 @@ end
 ```
 Обновим форму загрузки файлов app/views/user_files/_form.html.erb:
 ```erb
-<div class="col-md-3 mb-4 folder-card" id="<%= dom_id folder %>">
-  <div class="card h-100">
-    <%= link_to folder, class: 'link-dark text-decoration-none stretched-link', style: 'z-index: 1;' do %>
-      <div class="card-body text-center">
-        <div class="folder-icon mb-3">
-          <i class="bi bi-folder<%= folder.is_public ? '' : '-x' %> fs-1"></i>
-        </div>
-        <h5 class="card-title text-dark"><%= folder.name %></h5>
-        <div class="badge bg-<%= folder.is_public ? 'success' : 'secondary' %>">
-          <%= folder.is_public ? 'Public' : 'Private' %>
-        </div>
+<%= simple_form_for(@user_file, 
+    html: { 
+      class: 'file-uploader',
+      data: { 
+        controller: "file-uploader",
+        file_uploader_target: "form",
+        file_uploader_folder_id_value: @user_file.folder_id
+      }
+    }) do |f| %>
+  
+  <%= f.error_notification %>
+
+  <div class="file-uploader-container mb-4">
+    <!-- Dropzone -->
+    <div class="dropzone p-4 border rounded text-center mb-3" 
+         data-file-uploader-target="dropzone">
+      <i class="bi bi-cloud-arrow-up fs-1"></i>
+      <p class="mt-2">Перетащите файлы сюда или</p>
+      <div class="d-flex justify-content-center gap-3">
+        <%= f.file_field :file, 
+            multiple: true,
+            direct_upload: false,
+            class: 'd-none',
+            data: { file_uploader_target: "fileInput", action: "change->file-uploader#handleFileSelect" } %>
+        
+        <button type="button" class="btn btn-outline-primary"
+                data-action="click->file-uploader#handleFileSelect">
+          Выбрать файлы
+        </button>
+        
+        <button type="button" class="btn btn-outline-secondary"
+                data-bs-toggle="collapse" data-bs-target="#urlForm">
+          Вставить URL
+        </button>
       </div>
-    <% end %>
-    <% if folder.user == current_user %>
-      <div class="card-footer bg-white position-relative" style="z-index: 2;">
-        <%= link_to 'Edit', edit_folder_path(folder), class: 'btn btn-outline-secondary' %>
-        <%= link_to 'Delete', folder, 
-                    method: :delete, 
-                    data: { turbo_method: 'delete', turbo_confirm: "вы уверены?" }, 
-                    class: 'btn btn-outline-danger' %>
+    </div>
+
+    <!-- URL Form -->
+    <div class="collapse mb-3" id="urlForm" data-file-uploader-target="urlForm">
+      <div class="card card-body">
+        <div class="input-group">
+          <%= text_field_tag :file_url, nil, 
+              class: 'form-control',
+              placeholder: 'Введите URL файла...',
+              data: { file_uploader_target: "urlInput" } %>
+          <button class="btn btn-primary" type="button"
+                  data-action="file-uploader#handleUrlSubmit">
+            Загрузить
+          </button>
+        </div>
+        <small class="text-muted">Поддерживаются прямые ссылки на файлы</small>
       </div>
-    <% end %>
+    </div>
+
+    <!-- Progress -->
+    <div class="progress-indicator alert alert-info d-none mb-3" 
+         data-file-uploader-target="progress"></div>
+
+    <!-- Folder selection -->
+    <div class="form-inputs mb-3">
+      <% if @user_file.folder_id.present? %>
+        <%= f.hidden_field :folder_id %>
+        <div class="alert alert-info">
+          Файлы будут добавлены в: <strong><%= @user_file.folder.name %></strong>
+        </div>
+      <% else %>
+        <%= f.association :folder, 
+            collection: current_user.folders,
+            label: 'Папка',
+            input_html: { class: 'form-select' } %>
+      <% end %>
+    </div>
+
+    <!-- Preview -->
+    <div class="preview-container mb-3" data-file-uploader-target="preview"></div>
   </div>
-</div>
+
+  <div class="form-actions">
+    <%= f.button :submit, 'Загрузить файлы', 
+                class: 'btn btn-primary',
+                data: { file_uploader_target: "submit" } %>
+    <%= link_to 'Отмена', @user_file.folder || folders_path, class: 'btn btn-outline-secondary' %>
+  </div>
+<% end %>
 ```
 Добавим стили в app/assets/stylesheets/application.bootstrap.scss:
 ```css
