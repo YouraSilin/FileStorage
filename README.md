@@ -926,7 +926,7 @@ docker compose exec web rails generate stimulus file_uploader
 sudo chown -R $USER:$USER .
 ```
 Редактируем app/javascript/controllers/file_uploader_controller.js:
-```js
+```javascript
 import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
