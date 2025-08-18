@@ -1798,6 +1798,107 @@ docker compose exec web rails db:migrate
 sudo chown -R $USER:$USER .
 docker-compose up --remove-orphans
 ```
+Обновим модель файлов app/models/user_file.rb
+```erb
+class UserFile < ApplicationRecord
+  belongs_to :folder
+  has_one_attached :file
+
+  before_validation :set_name_from_url, if: -> { file.attached? && name.blank? }
+
+  before_save :set_name_from_file, if: -> { file.attached? && name.blank? }
+
+  # Проверяем, что файл прикреплен
+  validate :file_attached
+
+  validate :file_size_validation
+
+  # Check if file is previewable
+  def previewable?
+    return false unless file.attached?
+    file.image? || (file.content_type == 'application/pdf' && file.previewable?)
+  end
+
+  # Generate preview for the file
+  def file_preview
+    return unless file.attached?
+
+    if file.image?
+      file.variant(resize_to_limit: [200, 200]).processed
+    
+    elsif file.content_type == 'application/pdf' && file.previewable?
+      file.preview(resize_to_limit: [200, 200], format: :jpg).processed
+    end
+    rescue ActiveStorage::FileNotFoundError, ActiveStorage::UnpreviewableError => e
+        Rails.logger.error "Preview error: #{e.message}"
+        nil
+  end
+
+  def high_quality_preview
+    return unless file.attached?
+    
+    begin
+      if file.image?
+        # Для изображений
+        file.variant(
+          resize_to_limit: [800, 800],
+          saver: { quality: 90, strip: true }
+        ).processed
+      elsif file.content_type == 'application/pdf' && file.previewable?
+        # Для PDF
+        file.preview(resize_to_limit: [800, 800], format: :jpg).processed
+      end
+    rescue ActiveStorage::InvariableError, ActiveStorage::FileNotFoundError => e
+      Rails.logger.error "Preview generation failed: #{e.message}"
+      nil
+    end
+  end
+
+  def icon_for_file
+    return 'bi bi-file-earmark' unless file.attached?
+    
+    case file.content_type
+    when /image/ then 'bi bi-image'
+    when 'application/pdf' then 'bi bi-file-earmark-pdf'
+    else 'bi bi-file-earmark'
+    end
+  rescue
+    'bi bi-file-earmark'
+  end
+
+  def self.create_from_url(url, user, folder_id = nil)
+    tempfile = Down.download(url)
+    user_file = user.user_files.build(folder_id: folder_id)
+    user_file.file.attach(io: tempfile, filename: File.basename(tempfile.path))
+    user_file.save
+    user_file
+  ensure
+    tempfile.close! if tempfile
+  end
+
+  private
+
+    def set_name_from_file
+      self.name = file.filename.to_s
+    end
+
+    def set_name_from_url
+      self.name ||= file.filename.to_s
+    end
+
+    def file_attached
+      errors.add(:file, "должен быть прикреплен") unless file.attached?
+    end
+
+    def file_size_validation
+      return unless file.attached?
+      
+      if file.blob.byte_size > 25.megabytes
+        errors.add(:file, "слишком большой (максимум 25 МБ)")
+      end
+    end
+end
+```
 Обновим контроллер app/controllers/user_files_controller.rb
 ```ruby
 class UserFilesController < ApplicationController
@@ -2419,4 +2520,71 @@ Rails.application.routes.draw do
   
   root to: "user_files#index"
 end
+```
+Обновим представление app/views/user_files/show.html.erb для отображения комментария
+```erb
+<div class="card">
+  <div class="card-body">
+    <h5 class="card-title">
+      <div class="d-flex align-items-center mb-3">
+        <i class="<%= @user_file.icon_for_file %> fs-3 me-2"></i>
+        <span><%= @user_file.file.filename %></span>
+      </div>
+    </h5>
+    
+    <% if @user_file.file.attached? %>
+      <% preview = @user_file.high_quality_preview %>
+      
+      <% if preview %>
+        <div class="mb-3">
+          <%= image_tag preview, class: 'img-fluid rounded' %>
+        </div>
+      <% else %>
+        <div class="alert alert-info">
+          Preview not available for this file type
+        </div>
+      <% end %>
+
+    <% else %>
+      <div class="alert alert-warning">
+        No file attached
+      </div>
+    <% end %>
+
+    <% if @user_file.comment.present? %>
+      <div class="card mb-3">
+        <div class="card-body">
+          <h5 class="card-title">Комментарий</h5>
+          <p class="card-text"><%= @user_file.comment %></p>
+        </div>
+      </div>
+    <% end %>
+         
+    <div class="d-flex align-items-center mb-3">
+
+    <i class="bi bi-folder<%= @user_file.folder.is_public ? '' : '-x' %> fs-3 me-3"></i>
+        <div>
+          <h5><%= link_to @user_file.folder.name, @user_file.folder, class: 'link-dark text-decoration-none' %></h5>
+          <span class="badge bg-<%= @user_file.folder.is_public ? 'success' : 'secondary' %>">
+            <%= @user_file.folder.is_public ? 'Public' : 'Private' %>
+          </span>
+        </div>
+    </div>
+    <div class="text-muted small mt-2">
+      Owner: <%= @user_file.folder.user.email %>
+    </div>
+    
+    <div class="card-footer bg-white">        
+      <%= link_to 'Download', rails_blob_path(@user_file.file, disposition: 'attachment'), 
+          class: 'btn btn-primary me-2' if @user_file.file.attached? %>
+      <% if @user_file.folder.user == current_user %>
+        <%= link_to 'Edit', edit_user_file_path(@user_file), class: 'btn btn-outline-secondary' %>
+        <%= link_to 'Delete', @user_file, 
+                    method: :delete, data: { turbo_method: 'delete', turbo_confirm: "вы уверены?" }, 
+                    class: 'btn btn-outline-danger' %>
+      <% end %>
+      <%= link_to 'Back', user_files_path, class: 'btn btn-outline-primary' %>
+    </div>
+  </div>
+</div>
 ```
