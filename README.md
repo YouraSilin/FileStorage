@@ -911,7 +911,7 @@ def create
     end
   end
 ```
-Добавление различных способов загрузки
+## Добавление различных способов загрузки
 
 Сначала добавим необходимые гемы в Gemfile:
 ```ruby
@@ -1791,7 +1791,7 @@ docker compose exec web rails assets:clobber
 docker compose exec web rails assets:precompile
 docker-compose up --remove-orphans
 ```
-# Добавим поле комментариев с возможностью загрузки файлов из буфера обмена
+## Добавим поле комментариев с возможностью загрузки файлов из буфера обмена
 ```bash
 docker compose exec web rails generate migration AddCommentToUserFiles comment:text
 docker compose exec web rails db:migrate
