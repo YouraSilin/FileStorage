@@ -1799,7 +1799,7 @@ sudo chown -R $USER:$USER .
 docker-compose up --remove-orphans
 ```
 Обновим модель файлов app/models/user_file.rb
-```erb
+```ruby
 class UserFile < ApplicationRecord
   belongs_to :folder
   has_one_attached :file
