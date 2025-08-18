@@ -1277,7 +1277,7 @@ import { application } from "controllers/application"
 import { eagerLoadControllersFrom } from "@hotwired/stimulus-loading"
 eagerLoadControllersFrom("controllers", application)
 
-import FileUploadController from "./file_upload_controller"
+import FileUploadController from "./file_upload_coкntroller"
 application.register("file-upload", FileUploadController)
 
 import FileUploaderController from "./file_uploader_controller"
@@ -1790,4 +1790,9 @@ app/views/layouts/application.html.erb
 docker compose exec web rails assets:clobber
 docker compose exec web rails assets:precompile
 docker-compose up --remove-orphans
+```
+# Добавим поле комментариев с возможностью загрузки файлов из буфера обмена
+```bash
+docker compose exec web rails generate migration AddCommentToUserFiles comment:text
+docker compose exec web rails db:migrate
 ```
