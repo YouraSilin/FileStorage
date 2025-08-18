@@ -2588,3 +2588,8 @@ end
   </div>
 </div>
 ```
+```bash
+docker compose exec web rails assets:clobber
+docker compose exec web rails assets:precompile
+docker-compose up --remove-orphans
+```
