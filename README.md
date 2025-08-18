@@ -734,7 +734,7 @@ Rails.application.routes.draw do
   root to: "user_files#index"
 end
 ```
-Добавление множественной загрузки файлов
+## Добавление множественной загрузки файлов
 
 Создадим Stimulus контроллер:
 ```bash
