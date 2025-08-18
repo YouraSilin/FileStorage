@@ -1795,4 +1795,628 @@ docker-compose up --remove-orphans
 ```bash
 docker compose exec web rails generate migration AddCommentToUserFiles comment:text
 docker compose exec web rails db:migrate
+sudo chown -R $USER:$USER .
+docker-compose up --remove-orphans
+```
+Обновим контроллер app/controllers/user_files_controller.rb
+```ruby
+class UserFilesController < ApplicationController
+  before_action :authenticate_user!
+  before_action :set_user_file, only: %i[ show edit update destroy ]
+  before_action :authorize_user, only: %i[ edit update destroy ]
+
+  def index
+    @user_files = if params[:mine] == 'true'
+                    current_user.user_files.includes(:folder, file_attachment: :blob)
+                  else
+                    scope = UserFile.joins(:folder).merge(Folder.public_folders)
+                    scope = scope.where(folder_id: params[:folder_id]) if params[:folder_id].present?
+                    scope.includes(:folder, file_attachment: :blob)
+                  end
+  rescue => e
+    Rails.logger.error "Error loading files: #{e.message}"
+    @user_files = []
+    flash.now[:alert] = "Произошла ошибка при загрузке файлов"
+  end
+
+  def show
+  end
+
+  def new
+    @user_file = UserFile.new
+    @user_file.folder_id = params[:folder_id] if params[:folder_id]
+    @folders = current_user.folders
+  end
+
+  def edit
+    @folders = current_user.folders
+  end
+
+  def create
+    # Нормализуем параметры
+    files = []
+    
+    if params[:user_file][:files].present?
+      files = params[:user_file][:files]
+    elsif params[:user_file][:file].present?
+      files = [params[:user_file][:file]]
+    end
+
+    files = files.compact.reject { |f| f.respond_to?(:tempfile) && f.tempfile.nil? }
+
+    if files.any?
+      @user_files = files.map do |file|
+        user_file = current_user.user_files.build(
+          folder_id: params[:user_file][:folder_id],
+          comment: params[:user_file][:comment]
+        )
+        user_file.file.attach(file)
+        user_file.save ? user_file : nil
+      end.compact
+
+      if @user_files.size == files.size
+        redirect_to user_files_path, notice: "Файлы успешно загружены"
+      else
+        @folders = current_user.folders
+        render :new, status: :unprocessable_entity
+      end
+    else
+      redirect_back fallback_location: root_path, alert: "Не выбраны файлы для загрузки"
+    end
+  end
+
+  def download
+    url = params[:url]
+    
+    # Проверка URL
+    unless valid_file_url?(url)
+      return render json: { error: "Некорректный URL файла" }, status: :unprocessable_entity
+    end
+
+    begin
+      tempfile = Down.download(url)
+      user_file = current_user.user_files.build(
+        folder_id: params[:folder_id],
+        comment: params[:comment],
+        name: File.basename(url)
+      )
+      
+      user_file.file.attach(
+        io: tempfile,
+        filename: File.basename(url),
+        content_type: Marcel::MimeType.for(tempfile)
+      )
+
+      if user_file.save
+        render json: { success: true }
+      else
+        render json: { error: user_file.errors.full_messages.join(', ') }, status: :unprocessable_entity
+      end
+    rescue Down::Error => e
+      render json: { error: "Ошибка загрузки: #{e.message}" }, status: :unprocessable_entity
+    ensure
+      tempfile.close! if tempfile && tempfile.respond_to?(:close!)
+    end
+  end
+
+  def update
+    respond_to do |format|
+      if @user_file.update(user_file_params)
+        format.html { redirect_to user_files_path, notice: "файл сохранен" }
+      else
+        format.html { render :edit, status: :unprocessable_entity }
+      end
+    end
+  end
+
+  def destroy
+    @user_file.destroy!
+    respond_to do |format|
+      format.html { redirect_to user_files_path, notice: "файл удален" }
+    end
+  end
+
+  private
+    # Use callbacks to share common setup or constraints between actions.
+    def set_user_file
+      @user_file = UserFile.find(params[:id])
+    end
+
+    # Only allow a list of trusted parameters through.
+    def user_file_params
+      params.require(:user_file).permit(:folder_id, :comment, :file, files: [])
+    end
+
+    def valid_file_url?(url)
+      uri = URI.parse(url)
+      uri.host.present? && File.extname(uri.path).present?
+    rescue URI::InvalidURIError
+      false
+    end
+
+    def valid_direct_file_url?(url)
+      uri = URI.parse(url)
+      # Проверяем, что URL содержит расширение файла и не является страницей поиска
+      File.extname(uri.path).present? && 
+      !uri.host.include?('search') &&
+      !uri.path.include?('search')
+    rescue URI::InvalidURIError
+      false
+    end
+
+    def extract_filename_from_url(url)
+      uri = URI.parse(url)
+      File.basename(uri.path)
+    rescue
+      nil
+    end
+
+    def handle_files_upload(files)
+      @user_files = files.map do |file|
+        user_file = current_user.user_files.build(
+          folder_id: params[:user_file][:folder_id],
+          comment: params[:user_file][:comment]
+        )
+        user_file.file.attach(file)
+        user_file.save ? user_file : nil
+      end.compact
+
+      if @user_files.size == files.size
+        redirect_to user_files_path, notice: "Файлы успешно загружены"
+      else
+        @folders = current_user.folders
+        @user_file = UserFile.new(user_file_params)
+        render :new, status: :unprocessable_entity
+      end
+    end
+
+    def handle_multiple_files
+      @user_files = params[:user_file][:files].map do |file|
+        next if file.blank?
+        
+        user_file = current_user.user_files.build(
+          folder_id: params[:user_file][:folder_id],
+          comment: params[:user_file][:comment]
+        )
+        user_file.file.attach(file)
+        user_file.save ? user_file : nil
+      end.compact
+
+      if @user_files.size == params[:user_file][:files].count { |f| f.present? }
+        redirect_to user_files_path, notice: "Файлы успешно загружены"
+      else
+        @folders = current_user.folders
+        render :new, status: :unprocessable_entity
+      end
+    end
+
+    def handle_single_file
+      @user_file = current_user.user_files.build(user_file_params)
+      if @user_file.save
+        redirect_to user_files_path, notice: "Файл успешно загружен"
+      else
+        @folders = current_user.folders
+        render :new, status: :unprocessable_entity
+      end
+    end
+
+    def authorize_user
+      if @user_file.folder.nil? || @user_file.folder.user != current_user
+        redirect_to user_files_path, 
+                  alert: "You are not authorized to perform this action.",
+                  status: :forbidden
+      end
+    end
+end
+```
+Создадим новый Stimulus контроллер для загрузки:
+```bash
+docker compose exec web rails generate stimulus upload
+sudo chown -R $USER:$USER .
+docker-compose up --remove-orphans
+```
+Редактируем новый контроллер app/javascript/controllers/upload_controller.js
+```js
+import { Controller } from "@hotwired/stimulus"
+
+export default class extends Controller {
+  static targets = ["fileInput", "commentInput", "submit", "counter", "urlInput", "urlSubmit", "form"]
+  static values = { folderId: Number }
+
+  connect() {
+    this.setupPasteHandler()
+    this.setupDropzone()
+  }
+
+  // ========== Обработка файлов ==========
+  setupPasteHandler() {
+    this.commentInputTarget.addEventListener('paste', async (e) => {
+      if (e.clipboardData.files.length > 0) {
+        e.preventDefault()
+        await this.processFiles(e.clipboardData.files)
+      }
+    })
+  }
+
+  setupDropzone() {
+    this.commentInputTarget.addEventListener('dragover', (e) => {
+      e.preventDefault()
+      this.commentInputTarget.classList.add('dragover')
+    })
+
+    this.commentInputTarget.addEventListener('dragleave', () => {
+      this.commentInputTarget.classList.remove('dragover')
+    })
+
+    this.commentInputTarget.addEventListener('drop', (e) => {
+      e.preventDefault()
+      this.commentInputTarget.classList.remove('dragover')
+      if (e.dataTransfer.files.length > 0) {
+        this.processFiles(e.dataTransfer.files)
+      }
+    })
+  }
+
+  async processFiles(newFiles) {
+    this.commentInputTarget.classList.add('processing')
+    this.commentInputTarget.placeholder = "Обработка файлов..."
+    
+    await new Promise(resolve => setTimeout(resolve, 50))
+    
+    try {
+      const dataTransfer = new DataTransfer()
+      
+      if (this.fileInputTarget.files) {
+        Array.from(this.fileInputTarget.files).forEach(file => {
+          dataTransfer.items.add(file)
+        })
+      }
+      
+      Array.from(newFiles).forEach(file => {
+        dataTransfer.items.add(file)
+      })
+      
+      this.fileInputTarget.files = dataTransfer.files
+      this.fileInputTarget.dispatchEvent(new Event('change', { bubbles: true }))
+      
+    } finally {
+      this.commentInputTarget.classList.remove('processing')
+      this.commentInputTarget.placeholder = "Введите комментарий или перетащите файлы сюда..."
+    }
+  }
+
+  // ========== Управление UI ==========
+  handleFileSelect() {
+    this.updateCounter()
+  }
+
+  updateCounter() {
+    const files = this.fileInputTarget.files
+    const count = files.length
+    
+    if (count > 0) {
+      this.counterTarget.innerHTML = `
+        <div class="alert alert-success p-2 mb-3">
+          <i class="bi bi-check-circle me-2"></i>
+          Готово к загрузке: <strong>${count}</strong> файлов
+          ${count <= 3 ? 
+            `<div class="mt-1 small">${Array.from(files).map(f => f.name).join(', ')}</div>` : 
+            `<div class="mt-1 small">${Array.from(files).slice(0,3).map(f => f.name).join(', ')} и еще ${count-3}</div>`}
+        </div>
+      `
+      this.submitTarget.disabled = false
+      this.submitTarget.textContent = `Загрузить ${count} файлов`
+    } else {
+      this.counterTarget.innerHTML = ''
+      this.submitTarget.disabled = true
+      this.submitTarget.textContent = 'Загрузить'
+    }
+  }
+
+  triggerFileSelect() {
+    this.fileInputTarget.click()
+  }
+
+  // ========== Загрузка по URL ==========
+  async handleUrlSubmit(e) {
+    e.preventDefault()
+    const url = this.urlInputTarget.value.trim()
+    
+    if (!url) {
+      alert("Пожалуйста, введите URL файла")
+      return
+    }
+
+    if (!this.isValidFileUrl(url)) {
+      alert("Пожалуйста, используйте прямую ссылку на файл (например: https://example.com/image.jpg)")
+      return
+    }
+
+    try {
+      this.setLoadingState(this.urlSubmitTarget, true)
+
+      const response = await fetch('/user_files/download', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': this.getCSRFToken()
+        },
+        body: JSON.stringify({
+          url: url,
+          folder_id: this.folderIdValue,
+          comment: this.commentInputTarget.value
+        })
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Ошибка сервера')
+      }
+
+      // Редирект с учетом текущего каталога
+      const folderId = this.folderIdValue
+      const redirectUrl = folderId ? `/user_files?folder_id=${folderId}` : '/user_files'
+      Turbo.visit(redirectUrl)
+      
+    } catch (error) {
+      console.error('URL download error:', error)
+      alert(`Ошибка: ${error.message}`)
+    } finally {
+      this.setLoadingState(this.urlSubmitTarget, false)
+      this.urlInputTarget.value = ''
+    }
+  }
+
+  // ========== Загрузка локальных файлов ==========
+  submitForm(e) {
+    e.preventDefault()
+    
+    if (this.fileInputTarget.files.length === 0) {
+      alert("Пожалуйста, выберите файлы для загрузки")
+      return
+    }
+
+    // Всегда используем uploadMultipleFiles(), даже для одного файла
+    this.uploadMultipleFiles()
+  }
+
+  async uploadMultipleFiles() {
+    this.setLoadingState(this.submitTarget, true)
+
+    try {
+      const formData = new FormData(this.formTarget)
+      formData.delete('user_file[file]')
+      
+      Array.from(this.fileInputTarget.files).forEach(file => {
+        formData.append('user_file[files][]', file)
+      })
+
+      const response = await fetch(this.formTarget.action, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'X-CSRF-Token': this.getCSRFToken()
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error('Ошибка сервера при загрузке')
+      }
+
+      // Редирект с учетом текущего каталога
+      const folderId = this.folderIdValue
+      const redirectUrl = folderId ? `/user_files?folder_id=${folderId}` : '/user_files'
+      Turbo.visit(redirectUrl)
+      
+    } catch (error) {
+      console.error('Upload error:', error)
+      alert(`Ошибка загрузки: ${error.message}`)
+    } finally {
+      this.setLoadingState(this.submitTarget, false)
+    }
+  }
+
+  // ========== Вспомогательные методы ==========
+  setLoadingState(element, isLoading) {
+    if (!element) return
+    
+    if (isLoading) {
+      element.disabled = true
+      element.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> ${element.textContent}`
+    } else {
+      element.disabled = false
+      if (element === this.urlSubmitTarget) {
+        element.innerHTML = '<i class="bi bi-download"></i> Загрузить'
+      } else {
+        const count = this.fileInputTarget.files.length
+        element.textContent = count > 0 ? `Загрузить ${count} файлов` : 'Загрузить'
+      }
+    }
+  }
+
+  getCSRFToken() {
+    return document.querySelector("meta[name='csrf-token']")?.content || ''
+  }
+
+  isValidFileUrl(url) {
+    try {
+      const uri = new URL(url)
+      const ext = uri.pathname.split('.').pop()?.toLowerCase()
+      const validExtensions = ['jpg', 'jpeg', 'png', 'gif', 'pdf', 'doc', 'docx', 'xls', 'xlsx']
+      return validExtensions.includes(ext)
+    } catch {
+      return false
+    }
+  }
+}
+```
+В app/javascript/controllers/index.js должно быть
+```js
+// Import and register all your controllers from the importmap via controllers/**/*_controller
+import { application } from "controllers/application"
+import { eagerLoadControllersFrom } from "@hotwired/stimulus-loading"
+eagerLoadControllersFrom("controllers", application)
+
+import FileUploadController from "./file_upload_controller"
+application.register("file-upload", FileUploadController)
+
+import FileUploaderController from "./file_uploader_controller"
+application.register("file-uploader", FileUploaderController)
+
+import UploadController from "./upload_controller"
+application.register("upload", UploadController)
+```
+Обновим форму загрузки app/views/user_files/_form.html.erb
+```erb
+<%= simple_form_for(@user_file, html: { 
+  data: { 
+    controller: "upload",
+    upload_target: "form",
+    upload_folder_id_value: @user_file.folder_id || params[:folder_id],
+    action: "submit->upload#submitForm"
+  }
+}) do |f| %>
+  <%= f.error_notification %>
+
+  <% if @user_file.folder_id.present? %>
+    <%= f.hidden_field :folder_id %>
+    <div class="alert alert-info mb-3">
+      Файлы будут добавлены в: <strong><%= @user_file.folder.name %></strong>
+    </div>
+  <% else %>
+    <%= f.association :folder, 
+        collection: current_user.folders,
+        label: 'Папка',
+        input_html: { class: 'form-select' } %>
+  <% end %>
+
+  <div class="mb-3">
+    <%= f.input :comment, 
+        label: 'Комментарий',
+        input_html: { 
+          class: 'form-control dropzone-input',
+          data: { upload_target: "commentInput" },
+          rows: 3,
+          placeholder: 'Введите комментарий или перетащите файлы сюда...'
+        } %>
+  </div>
+
+  <div class="mb-3">
+    <button type="button" class="btn btn-outline-primary mb-2"
+            data-action="click->upload#triggerFileSelect">
+      <i class="bi bi-paperclip"></i> Выбрать файлы
+    </button>
+    
+    <%= f.input :file, 
+        as: :file,
+        input_html: { 
+          multiple: true,
+          class: 'd-none',
+          data: { 
+            upload_target: "fileInput",
+            action: "change->upload#handleFileSelect"
+          }
+        },
+        label: false %>
+  </div>
+
+  <div class="upload-counter mb-3" data-upload-target="counter"></div>
+
+  <div class="input-group mb-3">
+    <input type="text" 
+          class="form-control" 
+          placeholder="Прямая ссылка на файл (например: https://example.com/file.jpg)"
+          data-upload-target="urlInput">
+    <button class="btn btn-outline-secondary" 
+            type="button"
+            data-upload-target="urlSubmit"
+            data-action="click->upload#handleUrlSubmit">
+      <i class="bi bi-download"></i> Добавить
+    </button>
+  </div>
+
+  <small class="text-muted d-block mb-3">Работает только с прямыми ссылками на файлы (изображения, PDF, документы)</small>
+
+  <div class="form-actions">
+    <%= f.button :submit, 
+                'Загрузить',
+                class: 'btn btn-primary',
+                data: { upload_target: "submit" },
+                disabled: false %>
+  </div>
+<% end %>
+```
+Добавим стили в app/assets/stylesheets/application.bootstrap.scss
+```css
+/* Анимация загрузки */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Стили для спиннера загрузки */
+.upload-spinner {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid rgba(0,0,0,0.1);
+  border-radius: 50%;
+  border-top-color: #0d6efd;
+  animation: spin 1s ease-in-out infinite;
+  margin-right: 0.5rem;
+}
+
+/* Стили для списка файлов */
+.upload-file-list {
+  max-height: 150px;
+  overflow-y: auto;
+  
+  small {
+    display: block;
+    padding: 2px 5px;
+    border-radius: 3px;
+    background-color: #f8f9fa;
+    margin-bottom: 2px;
+  }
+}
+
+/* Стили для поля ввода с возможностью перетаскивания */
+.dropzone-input {
+  min-height: 100px;
+  transition: all 0.3s;
+  
+  &.dragover {
+    border-color: #0d6efd !important;
+    background-color: rgba(13, 110, 253, 0.05) !important;
+  }
+  
+  &.processing::after {
+    content: "Обработка файлов...";
+    display: block;
+    font-size: 0.8em;
+    color: #0d6efd;
+    margin-top: 5px;
+  }
+}
+
+/* Стиль для счетчика загрузок */
+.upload-counter .alert {
+  border-left: 3px solid #198754;
+}
+```
+Обновим маршруты в config/routes.rb
+```
+Rails.application.routes.draw do
+  devise_for :users
+  resources :folders
+  resources :user_files do
+    collection do
+      post 'download' # для загрузки по URL
+    end
+  end
+  
+  post '/user_files/download', to: 'user_files#download'
+  
+  root to: "user_files#index"
+end
 ```
